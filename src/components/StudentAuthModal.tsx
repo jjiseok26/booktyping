@@ -18,10 +18,11 @@ import {
 } from 'lucide-react';
 import { StudentAccount } from '../types';
 import {
-  getStoredStudentAccounts,
-  registerStudentAccount,
-  loginStudentAccount,
+  getRecentStudentAccounts,
+  rememberRecentAccount,
 } from '../utils/storage';
+import { apiListSchools, apiLoginStudent, apiRegisterStudent } from '../utils/dbClient';
+import { SchoolNameField } from './SchoolNameField';
 
 interface StudentAuthModalProps {
   isOpen: boolean;
@@ -55,14 +56,19 @@ export const StudentAuthModal: React.FC<StudentAuthModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [savedAccounts, setSavedAccounts] = useState<StudentAccount[]>([]);
+  const [registeredSchools, setRegisteredSchools] = useState<string[]>([]);
 
   // Refresh saved accounts and populate defaults when modal opens
   useEffect(() => {
     if (!isOpen) return;
-    const accounts = getStoredStudentAccounts();
+    const accounts = getRecentStudentAccounts();
     setSavedAccounts(accounts);
     setError(null);
     setSuccessMessage(null);
+    void apiListSchools().then((schools) => {
+      const localNames = accounts.map((acc) => acc.schoolName).filter(Boolean);
+      setRegisteredSchools(Array.from(new Set([...schools, ...localNames])));
+    });
 
     if (currentAccount) {
       setSchoolYear(currentAccount.schoolYear || '2026학년도');
@@ -107,7 +113,7 @@ export const StudentAuthModal: React.FC<StudentAuthModalProps> = ({
     setError(null);
   };
 
-  const handleRegisterSubmit = (e: React.FormEvent) => {
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccessMessage(null);
@@ -136,7 +142,7 @@ export const StudentAuthModal: React.FC<StudentAuthModalProps> = ({
       return;
     }
 
-    const res = registerStudentAccount({
+    const res = await apiRegisterStudent({
       schoolYear,
       schoolName: trimmedSchool,
       grade,
@@ -151,8 +157,9 @@ export const StudentAuthModal: React.FC<StudentAuthModalProps> = ({
     }
 
     setSuccessMessage(res.message);
-    setSavedAccounts(getStoredStudentAccounts());
     if (res.account) {
+      rememberRecentAccount(res.account);
+      setSavedAccounts(getRecentStudentAccounts());
       setTimeout(() => {
         onLoginSuccess(res.account!);
         onClose();
@@ -160,7 +167,7 @@ export const StudentAuthModal: React.FC<StudentAuthModalProps> = ({
     }
   };
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccessMessage(null);
@@ -181,7 +188,7 @@ export const StudentAuthModal: React.FC<StudentAuthModalProps> = ({
       return;
     }
 
-    const res = loginStudentAccount({
+    const res = await apiLoginStudent({
       schoolYear,
       schoolName: trimmedSchool,
       grade,
@@ -197,6 +204,7 @@ export const StudentAuthModal: React.FC<StudentAuthModalProps> = ({
 
     setSuccessMessage(res.message);
     if (res.account) {
+      rememberRecentAccount(res.account);
       setTimeout(() => {
         onLoginSuccess(res.account!);
         onClose();
@@ -206,7 +214,7 @@ export const StudentAuthModal: React.FC<StudentAuthModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-stone-950/80 backdrop-blur-sm animate-fade-in overflow-y-auto">
-      <div className="bg-stone-900 border border-stone-800 rounded-3xl max-w-lg w-full p-5 sm:p-7 shadow-2xl text-stone-100 relative my-6 overflow-hidden">
+      <div className="bg-stone-900 border border-stone-800 rounded-3xl max-w-lg w-full p-5 sm:p-7 shadow-2xl text-stone-100 relative my-6 overflow-visible">
         {/* Ambient background glow */}
         <div className="absolute top-0 right-0 -mr-20 -mt-20 w-64 h-64 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
 
@@ -404,13 +412,12 @@ export const StudentAuthModal: React.FC<StudentAuthModalProps> = ({
                   <School className="w-3.5 h-3.5 text-amber-400" />
                   <span>학교명</span>
                 </label>
-                <input
-                  type="text"
+                <SchoolNameField
                   value={schoolName}
-                  onChange={(e) => setSchoolName(e.target.value)}
+                  onChange={setSchoolName}
+                  schools={registeredSchools}
                   placeholder="예: 가온중학교, 한빛초등학교"
-                  required
-                  className="w-full px-3 py-2 rounded-xl bg-stone-950 border border-stone-700 text-stone-100 placeholder:text-stone-500 focus:outline-none focus:border-amber-400 text-xs"
+                  inputClassName="w-full px-3 py-2 rounded-xl bg-stone-950 border border-stone-700 text-stone-100 placeholder:text-stone-500 focus:outline-none focus:border-amber-400 text-xs"
                 />
               </div>
             </div>

@@ -1,4 +1,5 @@
 import { BookExcerpt } from '../types';
+import { ADDITIONAL_PUBLIC_DOMAIN_BOOKS } from './moreBooks';
 
 export const PUBLIC_DOMAIN_BOOKS: BookExcerpt[] = [
   // ==================== 한국 근대시 ====================
@@ -1011,7 +1012,17 @@ export const PUBLIC_DOMAIN_BOOKS: BookExcerpt[] = [
       '바람은 우리의 친구다. 때때로 바다는 잔인하지만 그래도 우리는 바다를 사랑한다.',
     ],
   },
+  ...ADDITIONAL_PUBLIC_DOMAIN_BOOKS,
 ];
+
+export function getTypingSentences(book: BookExcerpt): string[] {
+  if (book.fullSentences && book.fullSentences.length > 0) return book.fullSentences;
+  return book.sentences;
+}
+
+export function isWorkCompleted(history: { excerptId: string }[], excerptId: string): boolean {
+  return history.some((item) => item.excerptId === excerptId);
+}
 
 export const CATEGORIES = [
   '전체',

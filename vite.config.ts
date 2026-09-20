@@ -1,11 +1,21 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig} from 'vite';
+import {defineConfig, type Plugin} from 'vite';
+import apiApp from './server/app';
+
+function localApiPlugin(): Plugin {
+  return {
+    name: 'booktyping-api',
+    configureServer(server) {
+      server.middlewares.use(apiApp);
+    },
+  };
+}
 
 export default defineConfig(() => {
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), localApiPlugin()],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

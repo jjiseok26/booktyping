@@ -1,20 +1,16 @@
 import React, { useState } from 'react';
-import { BookReport, StudentProfile, BookExcerpt } from '../types';
-import { deleteStoredBookReport } from '../utils/storage';
+import { BookReport, StudentProfile, BookExcerpt, TypingSessionResult } from '../types';
+import { deleteStoredBookReport, getCurrentStudentAccount } from '../utils/storage';
+import { apiDeleteReport } from '../utils/dbClient';
+import { isWorkCompleted } from '../data/books';
 import {
-  BookOpen,
   FileText,
   Printer,
   Edit3,
   Trash2,
   Plus,
   Star,
-  Clock,
-  Sparkles,
-  Award,
   Search,
-  CheckCircle2,
-  ArrowRight,
   GraduationCap,
 } from 'lucide-react';
 
@@ -22,6 +18,7 @@ interface BookReportsViewProps {
   reports: BookReport[];
   studentProfile: StudentProfile;
   books: BookExcerpt[];
+  history: TypingSessionResult[];
   onOpenReportModal: (report?: BookReport, book?: BookExcerpt) => void;
   onRefreshReports: () => void;
   onStartTyping: () => void;
@@ -31,15 +28,35 @@ export const BookReportsView: React.FC<BookReportsViewProps> = ({
   reports,
   studentProfile,
   books,
+  history,
   onOpenReportModal,
   onRefreshReports,
   onStartTyping,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const completedBooks = books.filter((book) => isWorkCompleted(history, book.id));
+
+  const handleNewReport = () => {
+    if (completedBooks.length === 0) {
+      window.alert('독후감은 작품 전편을 끝까지 필사한 뒤에 작성할 수 있습니다.');
+      onStartTyping();
+      return;
+    }
+    if (completedBooks.length === 1) {
+      onOpenReportModal(undefined, completedBooks[0]);
+      return;
+    }
+    setPickerOpen(true);
+  };
 
   const handleDelete = (id: string, title: string) => {
     if (window.confirm(`'${title}' 독후감을 삭제하시겠습니까?`)) {
+      const account = getCurrentStudentAccount();
+      if (account) {
+        void apiDeleteReport(account.id, id).then(() => onRefreshReports());
+        return;
+      }
       deleteStoredBookReport(id);
       onRefreshReports();
     }
@@ -71,13 +88,13 @@ export const BookReportsView: React.FC<BookReportsViewProps> = ({
               문학 필사 독서기록장
             </h1>
             <p className="text-sm text-stone-400 mt-1 max-w-xl">
-              타자로 작품의 문장을 직접 정독하고 작성한 나만의 독후감 모음입니다. 언제든 깔끔한 A4 양식으로 인쇄하거나 PDF로 저장하여 선생님께 제출할 수 있습니다.
+              작품 전편을 끝까지 필사한 뒤에만 독후감을 남길 수 있습니다. 완성한 감상문은 A4 양식으로 인쇄하거나 PDF로 저장해 제출할 수 있습니다.
             </p>
           </div>
 
           <div className="flex items-center gap-3">
             <button
-              onClick={() => onOpenReportModal(undefined, books[0])}
+              onClick={handleNewReport}
               className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs sm:text-sm flex items-center gap-2 shadow-lg transition-all active:scale-95 shrink-0"
             >
               <Plus className="w-4 h-4" />
@@ -138,7 +155,7 @@ export const BookReportsView: React.FC<BookReportsViewProps> = ({
             {searchQuery ? '검색된 독후감이 없습니다.' : '아직 작성된 독후감이 없습니다.'}
           </p>
           <p className="text-xs text-stone-500 max-w-sm mx-auto">
-            공개 문학 도서를 타이핑하고 완주하면 뜨는 완료 창에서 바로 독후감을 작성하거나, 상단의 '새 독후감 작성하기'를 눌러 기록을 남겨보세요.
+            공개 문학 작품의 모든 문장을 끝까지 필사하면 독후감을 쓸 수 있습니다. 완주 창이나 상단의 '새 독후감 작성하기'에서 기록을 남겨 보세요.
           </p>
           <div className="pt-2 flex items-center justify-center gap-3">
             <button
@@ -239,6 +256,41 @@ export const BookReportsView: React.FC<BookReportsViewProps> = ({
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {pickerOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-950/70 backdrop-blur-sm">
+          <div className="bg-stone-900 border border-stone-700 rounded-2xl w-full max-w-md p-5 shadow-2xl">
+            <h2 className="text-base font-bold text-stone-100 mb-1">완주한 작품 선택</h2>
+            <p className="text-xs text-stone-400 mb-4">전편을 필사한 작품만 독후감을 작성할 수 있습니다.</p>
+            <ul className="max-h-64 overflow-y-auto space-y-1.5">
+              {completedBooks.map((book) => (
+                <li key={book.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPickerOpen(false);
+                      onOpenReportModal(undefined, book);
+                    }}
+                    className="w-full text-left px-3 py-2.5 rounded-xl border border-stone-800 hover:border-amber-500/50 hover:bg-amber-500/10 text-stone-200 text-sm"
+                  >
+                    <span className="font-batang font-bold">{book.title}</span>
+                    <span className="block text-[11px] text-stone-400 mt-0.5">
+                      《{book.bookTitle}》 · {book.author}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              onClick={() => setPickerOpen(false)}
+              className="mt-4 w-full py-2 rounded-xl bg-stone-800 text-stone-300 text-xs"
+            >
+              닫기
+            </button>
+          </div>
         </div>
       )}
     </div>

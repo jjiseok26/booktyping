@@ -9,7 +9,7 @@ import { BookReportsView } from './components/BookReportsView';
 import { BookReportModal } from './components/BookReportModal';
 import { StudentAuthModal } from './components/StudentAuthModal';
 import { BookExcerpt, TypingSettings, TypingSessionResult, StudentProfile, BookReport, StudentAccount } from './types';
-import { PUBLIC_DOMAIN_BOOKS } from './data/books';
+import { PUBLIC_DOMAIN_BOOKS, isWorkCompleted } from './data/books';
 import {
   getStoredHistory,
   saveTypingResult,
@@ -21,12 +21,23 @@ import {
   getStoredBookReports,
   getCurrentStudentAccount,
   setCurrentStudentAccount,
+  rememberRecentAccount,
   INITIAL_SAMPLE_RECORDS,
 } from './utils/storage';
+import {
+  apiClearSessions,
+  apiDeleteSession,
+  apiListReports,
+  apiListSessions,
+  apiSaveSession,
+} from './utils/dbClient';
 import { BookOpen, ShieldCheck, Trophy, Sparkles } from 'lucide-react';
+import { AdminView } from './components/AdminView';
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<'typing' | 'books' | 'dashboard' | 'leaderboard' | 'reports'>('typing');
+  const [currentView, setCurrentView] = useState<'typing' | 'books' | 'dashboard' | 'leaderboard' | 'reports' | 'admin'>(
+    window.location.hash === '#admin' ? 'admin' : 'typing'
+  );
   const [selectedBook, setSelectedBook] = useState<BookExcerpt>(PUBLIC_DOMAIN_BOOKS[0]);
   const [history, setHistory] = useState<TypingSessionResult[]>([]);
   const [settings, setSettings] = useState<TypingSettings>(getStoredSettings());
@@ -49,9 +60,8 @@ export default function App() {
 
   // Load history, profile, account & reports on initial render
   useEffect(() => {
-    setHistory(getStoredHistory());
-    setSettings(getStoredSettings());
     const acc = getCurrentStudentAccount();
+    setSettings(getStoredSettings());
     setCurrentAccount(acc);
     if (acc) {
       const synchedProfile: StudentProfile = {
@@ -65,10 +75,21 @@ export default function App() {
       };
       setStudentProfile(synchedProfile);
       saveStoredStudentProfile(synchedProfile);
+      rememberRecentAccount(acc);
+      void Promise.all([apiListSessions(acc.id), apiListReports(acc.id)])
+        .then(([sessions, dbReports]) => {
+          setHistory(sessions);
+          setReports(dbReports);
+        })
+        .catch(() => {
+          setHistory(getStoredHistory());
+          setReports(getStoredBookReports());
+        });
     } else {
       setStudentProfile(getStoredStudentProfile());
+      setHistory(getStoredHistory());
+      setReports(getStoredBookReports());
     }
-    setReports(getStoredBookReports());
   }, []);
 
   const handleSelectBook = (book: BookExcerpt) => {
@@ -81,8 +102,13 @@ export default function App() {
       ...result,
       studentProfile,
     };
-    const updated = saveTypingResult(sessionWithProfile);
-    setHistory(updated);
+    if (currentAccount) {
+      void apiSaveSession(currentAccount.id, sessionWithProfile)
+        .then(setHistory)
+        .catch(() => setHistory(saveTypingResult(sessionWithProfile)));
+      return;
+    }
+    setHistory(saveTypingResult(sessionWithProfile));
   };
 
   const handleSaveProfile = (newProfile: StudentProfile) => {
@@ -92,7 +118,9 @@ export default function App() {
 
   // Student Auth Handlers
   const handleLoginSuccess = (account: StudentAccount) => {
+    setCurrentStudentAccount(account);
     setCurrentAccount(account);
+    rememberRecentAccount(account);
     const updatedProfile: StudentProfile = {
       schoolYear: account.schoolYear,
       schoolName: account.schoolName,
@@ -104,11 +132,22 @@ export default function App() {
     };
     setStudentProfile(updatedProfile);
     saveStoredStudentProfile(updatedProfile);
+    void Promise.all([apiListSessions(account.id), apiListReports(account.id)])
+      .then(([sessions, dbReports]) => {
+        setHistory(sessions);
+        setReports(dbReports);
+      })
+      .catch(() => {
+        setHistory(getStoredHistory());
+        setReports(getStoredBookReports());
+      });
   };
 
   const handleLogoutAccount = () => {
     setCurrentStudentAccount(null);
     setCurrentAccount(null);
+    setHistory(getStoredHistory());
+    setReports(getStoredBookReports());
   };
 
   const handleOpenAuthModal = (mode: 'login' | 'register' = 'login') => {
@@ -123,6 +162,15 @@ export default function App() {
     resultToReport?: TypingSessionResult
   ) => {
     const targetBook = bookToReport || (initialReport ? PUBLIC_DOMAIN_BOOKS.find(b => b.id === initialReport.excerptId) || selectedBook : selectedBook);
+    const canWrite =
+      Boolean(initialReport) ||
+      Boolean(resultToReport) ||
+      (targetBook ? isWorkCompleted(history, targetBook.id) : false);
+    if (!canWrite) {
+      window.alert('독후감은 작품 전편을 끝까지 필사한 뒤에 작성할 수 있습니다.');
+      setCurrentView('typing');
+      return;
+    }
     setReportModalData({
       initialReport,
       book: targetBook,
@@ -132,11 +180,27 @@ export default function App() {
   };
 
   const handleSaveReportSuccess = (savedReport: BookReport) => {
+    if (currentAccount) {
+      setReports((prev) => {
+        const idx = prev.findIndex((item) => item.id === savedReport.id);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = savedReport;
+          return next;
+        }
+        return [savedReport, ...prev];
+      });
+      return;
+    }
     setReports(getStoredBookReports());
   };
 
   const handleClearHistory = () => {
     if (window.confirm('정말 모든 필사 통계 기록을 삭제하시겠습니까?')) {
+      if (currentAccount) {
+        void apiClearSessions(currentAccount.id).then(() => setHistory([])).catch(() => setHistory([]));
+        return;
+      }
       clearHistoryStorage();
       setHistory([]);
     }
@@ -148,6 +212,12 @@ export default function App() {
   };
 
   const handleDeleteRecord = (id: string) => {
+    if (currentAccount) {
+      void apiDeleteSession(currentAccount.id, id).then(setHistory).catch(() => {
+        setHistory(history.filter((h) => h.id !== id));
+      });
+      return;
+    }
     const updated = history.filter((h) => h.id !== id);
     localStorage.setItem('literary_typing_history_v2', JSON.stringify(updated));
     setHistory(updated);
@@ -161,6 +231,15 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#fbfaf8] text-stone-900 font-sans-kr selection:bg-amber-100 selection:text-amber-950">
+      {currentView === 'admin' ? (
+        <AdminView
+          onBack={() => {
+            window.location.hash = '';
+            setCurrentView('typing');
+          }}
+        />
+      ) : (
+        <>
       {/* Top Navigation & Controls Bar */}
       <Header
         currentView={currentView}
@@ -214,8 +293,15 @@ export default function App() {
             reports={reports}
             studentProfile={studentProfile}
             books={PUBLIC_DOMAIN_BOOKS}
+            history={history}
             onOpenReportModal={(report, book) => handleOpenReportModal(report, book)}
-            onRefreshReports={() => setReports(getStoredBookReports())}
+            onRefreshReports={() => {
+              if (currentAccount) {
+                void apiListReports(currentAccount.id).then(setReports).catch(() => setReports(getStoredBookReports()));
+                return;
+              }
+              setReports(getStoredBookReports());
+            }}
             onStartTyping={() => setCurrentView('typing')}
           />
         )}
@@ -281,9 +367,21 @@ export default function App() {
             <span className="text-stone-400">
               본 서비스의 모든 수록작은 저작권 보호기간(사후 70년)이 만료된 퍼블릭 도메인 저작물입니다.
             </span>
+            <span className="text-stone-600">|</span>
+            <button
+              onClick={() => {
+                window.location.hash = 'admin';
+                setCurrentView('admin');
+              }}
+              className="text-stone-500 hover:text-amber-300"
+            >
+              관리자
+            </button>
           </div>
         </div>
       </footer>
+        </>
+      )}
     </div>
   );
 }

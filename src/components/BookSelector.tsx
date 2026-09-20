@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Search, BookMarked, Feather, Check, Sparkles, ShieldCheck, ArrowRight } from 'lucide-react';
 import { BookExcerpt } from '../types';
-import { PUBLIC_DOMAIN_BOOKS, CATEGORIES } from '../data/books';
+import { PUBLIC_DOMAIN_BOOKS, CATEGORIES, getTypingSentences } from '../data/books';
 
 interface BookSelectorProps {
   activeExcerptId: string;
@@ -35,7 +35,8 @@ export const BookSelector: React.FC<BookSelectorProps> = ({
         book.author.toLowerCase().includes(query) ||
         book.title.toLowerCase().includes(query) ||
         book.description.toLowerCase().includes(query) ||
-        book.sentences.some((s) => s.toLowerCase().includes(query));
+        book.sentences.some((s) => s.toLowerCase().includes(query)) ||
+        getTypingSentences(book).some((s) => s.toLowerCase().includes(query));
 
       return matchCategory && matchDifficulty && matchQuery;
     });
@@ -55,7 +56,7 @@ export const BookSelector: React.FC<BookSelectorProps> = ({
               문학 서재에서 필사할 작품 고르기
             </h1>
             <p className="mt-2 text-stone-600 text-sm sm:text-base leading-relaxed max-w-3xl">
-              윤동주·정지용·김소월·이육사의 명시, 이효석·김유정·현진건의 소설, 박지원·정약용의 고전, 그리고 톨스토이·생텍쥐페리·오스카 와일드의 세계 명작까지 총 {PUBLIC_DOMAIN_BOOKS.length}편의 고전 명문장을 손끝으로 따라 쓰며 타자 실력과 문학적 소양을 길러보세요.
+              윤동주·정지용·김소월·이육사의 명시, 이효석·김유정·현진건의 소설, 심청전·흥부전 같은 고전, 그리고 안데르센·이솝·오스카 와일드의 세계 명작까지 총 {PUBLIC_DOMAIN_BOOKS.length}편을 전편 필사합니다. 모든 문장을 끝까지 타이핑하면 독후감을 작성할 수 있습니다.
             </p>
           </div>
 
@@ -144,7 +145,8 @@ export const BookSelector: React.FC<BookSelectorProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredBooks.map((book) => {
             const isCurrent = book.id === activeExcerptId;
-            const totalChars = book.sentences.reduce((acc, s) => acc + s.length, 0);
+            const typingSentences = getTypingSentences(book);
+            const totalChars = typingSentences.reduce((acc, s) => acc + s.length, 0);
 
             return (
               <div
@@ -167,11 +169,9 @@ export const BookSelector: React.FC<BookSelectorProps> = ({
                         <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-md border ${book.badgeColor}`}>
                           {book.category}
                         </span>
-                        {book.fullSentences && book.fullSentences.length > (book.excerptSentences?.length || 0) && (
-                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300">
-                            전문 필사
-                          </span>
-                        )}
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300">
+                          전편 필사
+                        </span>
                       </div>
 
                       <div className="flex items-center gap-1.5">
@@ -204,15 +204,15 @@ export const BookSelector: React.FC<BookSelectorProps> = ({
 
                     {/* First line preview */}
                     <div className="bg-stone-50 rounded-xl p-3 border border-stone-200/70 mb-4 font-batang text-xs text-stone-700 italic">
-                      "{book.sentences[0]}"
+                      "{typingSentences[0]}"
                     </div>
                   </div>
 
                   {/* Footer Details & Action Button */}
                   <div>
                     <div className="flex items-center justify-between text-[11px] text-stone-500 mb-3 pt-3 border-t border-stone-100">
-                      <span>문장 수: <strong>{book.fullSentences ? `${book.fullSentences.length}개(전문)` : `${book.sentences.length}개`}</strong></span>
-                      <span>총 글자 수: <strong>{book.fullSentences ? `${book.fullSentences.reduce((acc, s) => acc + s.length, 0)}자` : `${totalChars}자`}</strong></span>
+                      <span>문장 수: <strong>{typingSentences.length}개</strong></span>
+                      <span>총 글자 수: <strong>{totalChars}자</strong></span>
                       <span className="text-emerald-700 font-medium">자유이용 만료작</span>
                     </div>
 

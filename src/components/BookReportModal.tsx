@@ -6,7 +6,8 @@ import {
   StudentProfile,
 } from '../types';
 import { BookReportPrintSheet } from './BookReportPrintSheet';
-import { saveStoredBookReport } from '../utils/storage';
+import { saveStoredBookReport, getCurrentStudentAccount } from '../utils/storage';
+import { apiSaveReport } from '../utils/dbClient';
 import {
   BookOpen,
   Printer,
@@ -116,26 +117,35 @@ export const BookReportModal: React.FC<BookReportModalProps> = ({
     personalTakeaway: personalTakeaway.trim(),
   };
 
-  const handleSave = () => {
-    const saved = saveStoredBookReport(currentReportObject);
-    setIsSavedToast(true);
-    setTimeout(() => setIsSavedToast(false), 3000);
-    if (onSaveSuccess) {
-      onSaveSuccess(currentReportObject);
+  const persistReport = async (report: BookReport) => {
+    const account = getCurrentStudentAccount();
+    if (account) {
+      await apiSaveReport(account.id, report);
+      return;
     }
+    saveStoredBookReport(report);
+  };
+
+  const handleSave = () => {
+    void persistReport(currentReportObject).then(() => {
+      setIsSavedToast(true);
+      setTimeout(() => setIsSavedToast(false), 3000);
+      if (onSaveSuccess) {
+        onSaveSuccess(currentReportObject);
+      }
+    });
   };
 
   const handlePrintPdf = () => {
-    // Save current changes first
-    saveStoredBookReport(currentReportObject);
-    if (onSaveSuccess) {
-      onSaveSuccess(currentReportObject);
-    }
-    // Switch to preview view for cleanest presentation and trigger native browser print
-    setActiveTab('preview');
-    setTimeout(() => {
-      window.print();
-    }, 200);
+    void persistReport(currentReportObject).then(() => {
+      if (onSaveSuccess) {
+        onSaveSuccess(currentReportObject);
+      }
+      setActiveTab('preview');
+      setTimeout(() => {
+        window.print();
+      }, 200);
+    });
   };
 
   return (

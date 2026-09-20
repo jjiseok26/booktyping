@@ -8,6 +8,7 @@ const STORAGE_KEYS = {
   REPORTS: 'literary_typing_book_reports_v2',
   STUDENT_ACCOUNTS: 'literary_typing_student_accounts_v2',
   CURRENT_STUDENT_ACCOUNT: 'literary_typing_current_student_account_v2',
+  RECENT_ACCOUNTS: 'literary_typing_recent_accounts_v2',
 };
 
 export const INITIAL_GUEST_PROFILE: StudentProfile = {
@@ -226,6 +227,33 @@ export function buildStudentAccountId(
 }
 
 // Student Accounts Management
+export function rememberRecentAccount(account: StudentAccount): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const existing = getRecentStudentAccounts().filter((item) => item.id !== account.id);
+    localStorage.setItem(STORAGE_KEYS.RECENT_ACCOUNTS, JSON.stringify([account, ...existing].slice(0, 8)));
+  } catch (e) {
+    console.error('Failed to save recent student account', e);
+  }
+}
+
+export function getRecentStudentAccounts(): StudentAccount[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const recentRaw = localStorage.getItem(STORAGE_KEYS.RECENT_ACCOUNTS);
+    if (recentRaw) {
+      const parsed = JSON.parse(recentRaw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+    const legacyRaw = localStorage.getItem(STORAGE_KEYS.STUDENT_ACCOUNTS);
+    if (!legacyRaw) return [];
+    const parsed = JSON.parse(legacyRaw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 export function getStoredStudentAccounts(): StudentAccount[] {
   if (typeof window === 'undefined') return [];
   try {
@@ -839,10 +867,11 @@ export function getClassLeaderboard(
 export function getSampleClassLeaderboard(
   profile: StudentProfile,
   userHistory: TypingSessionResult[],
-  selectedClassNum?: number
+  selectedClassNum?: number,
+  existingRecords?: StudentRankRecord[]
 ): StudentRankRecord[] {
   const activeClassNum = selectedClassNum ?? profile.classNum;
-  const realRecords = getClassLeaderboard(profile, userHistory, activeClassNum);
+  const realRecords = existingRecords ?? getClassLeaderboard(profile, userHistory, activeClassNum);
   const classSeedModifier = (activeClassNum * 13) % 10;
   const peerRecords: StudentRankRecord[] = BASE_CLASSMATES.filter(
     (c) => c.studentNum !== profile.studentNum

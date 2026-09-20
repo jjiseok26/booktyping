@@ -203,7 +203,7 @@ export const SessionCompletionModal: React.FC<SessionCompletionModalProps> = ({
                   </span>
                 </div>
                 <p className="text-xs text-stone-300 mt-0.5">
-                  방금 필사한 문장에 대한 나만의 감상문을 적고, 깔끔한 PDF 양식으로 바로 인쇄할 수 있습니다.
+                  전편을 모두 필사했으니 이제 독후감을 남길 수 있습니다. 감상문은 PDF로 바로 인쇄할 수 있습니다.
                 </p>
               </div>
             </div>

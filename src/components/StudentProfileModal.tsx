@@ -1,6 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { School, User, Hash, Calendar, GraduationCap, Users, Check, X, Sparkles } from 'lucide-react';
 import { StudentProfile } from '../types';
+import { getRecentStudentAccounts } from '../utils/storage';
+import { apiListSchools } from '../utils/dbClient';
+import { SchoolNameField } from './SchoolNameField';
 
 interface StudentProfileModalProps {
   isOpen: boolean;
@@ -10,7 +13,6 @@ interface StudentProfileModalProps {
 }
 
 const SCHOOL_YEAR_OPTIONS = ['2026학년도', '2027학년도', '2028학년도', '2029학년도', '2030학년도'];
-const PRESET_SCHOOLS = ['가온중학교', '예당중학교', '한빛고등학교', '세종초등학교', '새솔중학교', '다온고등학교'];
 
 export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
   isOpen,
@@ -25,6 +27,16 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
   const [studentNum, setStudentNum] = useState<number>(currentProfile.studentNum || 15);
   const [name, setName] = useState(currentProfile.name || '김지민');
   const [error, setError] = useState<string | null>(null);
+  const [registeredSchools, setRegisteredSchools] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    void apiListSchools().then((schools) => {
+      const localNames = getRecentStudentAccounts().map((acc) => acc.schoolName).filter(Boolean);
+      if (currentProfile.schoolName) localNames.push(currentProfile.schoolName);
+      setRegisteredSchools(Array.from(new Set([...schools, ...localNames])));
+    });
+  }, [isOpen, currentProfile.schoolName]);
 
   if (!isOpen) return null;
 
@@ -56,7 +68,7 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-950/75 backdrop-blur-sm animate-fade-in">
-      <div className="bg-stone-900 border border-stone-700/80 rounded-3xl max-w-lg w-full p-6 sm:p-7 shadow-2xl text-stone-100 overflow-hidden relative">
+      <div className="bg-stone-900 border border-stone-700/80 rounded-3xl max-w-lg w-full p-6 sm:p-7 shadow-2xl text-stone-100 overflow-visible relative">
         {/* Glow accent */}
         <div className="absolute -top-12 -right-12 w-40 h-40 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
 
@@ -124,31 +136,19 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
               </span>
               <span className="text-[11px] font-normal text-stone-500">예: 가온중학교, 한국고등학교</span>
             </label>
-            <input
-              type="text"
-              id="input-school-name"
+            <SchoolNameField
               value={schoolName}
-              onChange={(e) => {
-                setSchoolName(e.target.value);
+              onChange={(next) => {
+                setSchoolName(next);
                 if (error) setError(null);
               }}
+              schools={registeredSchools}
               placeholder="학교 이름을 입력하세요 (예: 가온중학교)"
-              className="w-full px-3.5 py-2.5 rounded-xl bg-stone-800/90 border border-stone-700 text-stone-100 text-sm focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400"
+              inputClassName="w-full px-3.5 py-2.5 rounded-xl bg-stone-800/90 border border-stone-700 text-stone-100 text-sm focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400"
             />
-            {/* Quick preset chips */}
-            <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-              <span className="text-[10px] text-stone-500">추천:</span>
-              {PRESET_SCHOOLS.slice(0, 4).map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setSchoolName(s)}
-                  className="px-2 py-0.5 rounded-md bg-stone-800 border border-stone-700 text-[11px] text-stone-400 hover:text-amber-300 hover:border-amber-400/40 transition-colors"
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
+            {registeredSchools.length > 0 && (
+              <p className="text-[11px] text-stone-500 mt-1.5">등록된 학교명이 입력 시 목록으로 나타납니다.</p>
+            )}
           </div>
 
           {/* 3. 학년 & 반 (Grade & Class) */}

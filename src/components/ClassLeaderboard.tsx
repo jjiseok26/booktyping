@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Trophy,
   Award,
@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { StudentProfile, StudentRankRecord, RankSortMode, TypingSessionResult, StudentAccount } from '../types';
 import { getClassLeaderboard, getSampleClassLeaderboard, sortLeaderboard } from '../utils/storage';
+import { apiGetLeaderboard } from '../utils/dbClient';
 
 interface ClassLeaderboardProps {
   currentProfile: StudentProfile;
@@ -42,14 +43,47 @@ export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
   const [selectedClassNum, setSelectedClassNum] = useState<number>(currentProfile.classNum);
   const [sortMode, setSortMode] = useState<RankSortMode>('effort');
   const [showSamplePeers, setShowSamplePeers] = useState<boolean>(false);
+  const [dbRecords, setDbRecords] = useState<StudentRankRecord[] | null>(null);
+
+  useEffect(() => {
+    if (!currentProfile.schoolName) {
+      setDbRecords([]);
+      return;
+    }
+    let cancelled = false;
+    void apiGetLeaderboard({
+      schoolYear: currentProfile.schoolYear,
+      schoolName: currentProfile.schoolName,
+      grade: currentProfile.grade,
+      classNum: selectedClassNum,
+      currentStudentId: currentAccount?.id || currentProfile.accountId,
+    })
+      .then((records) => {
+        if (!cancelled) setDbRecords(records);
+      })
+      .catch(() => {
+        if (!cancelled) setDbRecords(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    currentProfile.schoolYear,
+    currentProfile.schoolName,
+    currentProfile.grade,
+    currentProfile.accountId,
+    selectedClassNum,
+    currentAccount?.id,
+  ]);
 
   // Compute leaderboard records for the active class
   const rawRecords = useMemo(() => {
+    const liveRecords = dbRecords ?? getClassLeaderboard(currentProfile, userHistory, selectedClassNum);
     if (showSamplePeers) {
-      return getSampleClassLeaderboard(currentProfile, userHistory, selectedClassNum);
+      return getSampleClassLeaderboard(currentProfile, userHistory, selectedClassNum, liveRecords);
     }
-    return getClassLeaderboard(currentProfile, userHistory, selectedClassNum);
-  }, [currentProfile, userHistory, selectedClassNum, showSamplePeers]);
+    return liveRecords;
+  }, [currentProfile, userHistory, selectedClassNum, showSamplePeers, dbRecords]);
 
   // Sort according to active mode
   const sortedRecords = useMemo(() => {

@@ -4,7 +4,6 @@ import {
   Target,
   AlertCircle,
   RotateCcw,
-  SkipForward,
   BookOpen,
   ChevronLeft,
   ChevronRight,
@@ -16,6 +15,7 @@ import { BookExcerpt, TypingSettings, TypingSessionResult, StudentProfile } from
 import { decomposeChar, countTotalStrokes, compareCharAccuracy } from '../utils/hangul';
 import { playKeySound, playCompletionSound } from '../utils/sound';
 import { calculateSessionEffortPoints } from '../utils/storage';
+import { getTypingSentences } from '../data/books';
 import { SessionCompletionModal } from './SessionCompletionModal';
 
 interface TypingAreaProps {
@@ -41,20 +41,7 @@ export const TypingArea: React.FC<TypingAreaProps> = ({
   onGoToLeaderboard,
   onWriteBookReport,
 }) => {
-  // Mode selection: 'full' (전체 본문 전문 필사) vs 'excerpt' (핵심 발췌 구절)
-  const hasFullSentences = Boolean(book.fullSentences && book.fullSentences.length > 0);
-  const [typingMode, setTypingMode] = useState<'full' | 'excerpt'>('full');
-
-  // Active sentences based on mode
-  const activeSentences = useMemo(() => {
-    if (typingMode === 'full' && book.fullSentences && book.fullSentences.length > 0) {
-      return book.fullSentences;
-    }
-    if (typingMode === 'excerpt' && book.excerptSentences && book.excerptSentences.length > 0) {
-      return book.excerptSentences;
-    }
-    return book.sentences;
-  }, [book, typingMode]);
+  const activeSentences = useMemo(() => getTypingSentences(book), [book]);
 
   const [sentenceIndex, setSentenceIndex] = useState(0);
   const [userInput, setUserInput] = useState('');
@@ -85,9 +72,9 @@ export const TypingArea: React.FC<TypingAreaProps> = ({
     if (inputRef.current) {
       inputRef.current.focus();
     }
-  }, [sentenceIndex, book.id, typingMode]);
+  }, [sentenceIndex, book.id]);
 
-  // Reset states when book or typingMode changes
+  // Reset states when book changes
   useEffect(() => {
     setSentenceIndex(0);
     setUserInput('');
@@ -103,7 +90,7 @@ export const TypingArea: React.FC<TypingAreaProps> = ({
     setTotalSessionErrors(0);
     setSessionMistypedLetters({});
     setCompletedResult(null);
-  }, [book.id, typingMode]);
+  }, [book.id]);
 
   // Real-time timer tick to keep CPM and duration fresh
   useEffect(() => {
@@ -207,7 +194,7 @@ export const TypingArea: React.FC<TypingAreaProps> = ({
         excerptId: book.id,
         bookTitle: book.bookTitle,
         author: book.author,
-        excerptTitle: typingMode === 'full' ? `${book.title} (전문 필사)` : book.title,
+        excerptTitle: `${book.title} (전편 필사)`,
         cpm: finalCpm || realtimeCpm,
         wpm: Math.round((finalCpm || realtimeCpm) / 5),
         peakCpm: Math.max(peakCpm, finalCpm),
@@ -245,7 +232,6 @@ export const TypingArea: React.FC<TypingAreaProps> = ({
     settings.soundVolume,
     targetSentence,
     totalSessionErrors,
-    typingMode,
     userInput,
   ]);
 
@@ -334,16 +320,6 @@ export const TypingArea: React.FC<TypingAreaProps> = ({
     }
   };
 
-  // Skip to next sentence manually
-  const handleSkipSentence = () => {
-    if (sentenceIndex < activeSentences.length - 1) {
-      setSentenceIndex((prev) => prev + 1);
-      setUserInput('');
-      setErrorCount(0);
-    }
-  };
-
-  // Previous sentence manually
   const handlePrevSentence = () => {
     if (sentenceIndex > 0) {
       setSentenceIndex((prev) => prev - 1);
@@ -385,43 +361,9 @@ export const TypingArea: React.FC<TypingAreaProps> = ({
 
         {/* Change Book & Sentence Navigation & Full-Text Toggle */}
         <div className="flex items-center gap-2 self-end md:self-auto flex-wrap">
-          {/* Full-text toggle if book has distinct fullSentences / excerptSentences */}
-          {hasFullSentences && (
-            <div className="inline-flex bg-stone-100 p-0.5 rounded-xl border border-stone-200 text-xs">
-              <button
-                type="button"
-                onClick={() => {
-                  if (typingMode !== 'full') {
-                    setTypingMode('full');
-                  }
-                }}
-                className={`px-2.5 py-1 rounded-lg font-medium transition-all ${
-                  typingMode === 'full'
-                    ? 'bg-amber-500 text-stone-950 font-bold shadow-xs'
-                    : 'text-stone-600 hover:text-stone-900'
-                }`}
-                title="작품 속 모든 문장을 처음부터 끝까지 필사"
-              >
-                전체 본문 ({book.fullSentences?.length || 0}문장)
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (typingMode !== 'excerpt') {
-                    setTypingMode('excerpt');
-                  }
-                }}
-                className={`px-2.5 py-1 rounded-lg font-medium transition-all ${
-                  typingMode === 'excerpt'
-                    ? 'bg-amber-500 text-stone-950 font-bold shadow-xs'
-                    : 'text-stone-600 hover:text-stone-900'
-                }`}
-                title="핵심 구절만 발췌하여 필사"
-              >
-                발췌본 ({book.excerptSentences?.length || book.sentences.length}문장)
-              </button>
-            </div>
-          )}
+          <span className="text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-amber-50 text-amber-900 border border-amber-200">
+            전편 필사 {activeSentences.length}문장
+          </span>
 
           <button
             onClick={onSelectAnotherBook}
@@ -443,14 +385,9 @@ export const TypingArea: React.FC<TypingAreaProps> = ({
             <span className="px-2 font-mono font-medium text-stone-700">
               {sentenceIndex + 1} / {activeSentences.length}
             </span>
-            <button
-              onClick={handleSkipSentence}
-              disabled={sentenceIndex === activeSentences.length - 1}
-              className="p-1 rounded text-stone-600 hover:bg-white disabled:opacity-30"
-              title="다음 문장 건너뛰기"
-            >
+            <span className="p-1 rounded text-stone-400 opacity-40" title="다음 문장은 현재 문장을 모두 입력해야 이어집니다">
               <ChevronRight className="w-4 h-4" />
-            </button>
+            </span>
           </div>
         </div>
       </div>
