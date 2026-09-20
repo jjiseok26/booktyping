@@ -5,7 +5,24 @@ import { DatabaseSync } from 'node:sqlite';
 import type { BookReport, StudentAccount, StudentRankRecord, TypingSessionResult } from '../src/types';
 import { calculateCumulativeEffortScore, getTitleBadge } from '../src/utils/storage';
 
-const SCHEMA = readFileSync(path.join(import.meta.dirname, 'schema.sql'), 'utf8');
+const SCHEMA_CANDIDATES = [
+  path.join(import.meta.dirname, 'schema.sql'),
+  path.join(import.meta.dirname, '../server/schema.sql'),
+  path.join(process.cwd(), 'server/schema.sql'),
+];
+
+function readSchema(): string {
+  for (const file of SCHEMA_CANDIDATES) {
+    try {
+      return readFileSync(file, 'utf8');
+    } catch {
+      // try the next known location
+    }
+  }
+  throw new Error('schema.sql not found');
+}
+
+const SCHEMA = readSchema();
 
 type SqlRow = Record<string, unknown>;
 

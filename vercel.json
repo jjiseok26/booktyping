@@ -1,10 +1,10 @@
 {
   "installCommand": "npm install --legacy-peer-deps",
   "functions": {
-    "api/index.ts": {
+    "api/index.js": {
       "includeFiles": "server/schema.sql"
     },
-    "api/[...path].ts": {
+    "api/[...path].js": {
       "includeFiles": "server/schema.sql"
     }
   }

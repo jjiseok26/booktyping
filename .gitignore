@@ -9,3 +9,4 @@ coverage/
 .vercel
 data/*.sqlite
 data/*.sqlite-journal
+api/_app.mjs
