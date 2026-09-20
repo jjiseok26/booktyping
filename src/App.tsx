@@ -1,0 +1,289 @@
+import React, { useState, useEffect } from 'react';
+import { Header } from './components/Header';
+import { TypingArea } from './components/TypingArea';
+import { BookSelector } from './components/BookSelector';
+import { Dashboard } from './components/Dashboard';
+import { ClassLeaderboard } from './components/ClassLeaderboard';
+import { StudentProfileModal } from './components/StudentProfileModal';
+import { BookReportsView } from './components/BookReportsView';
+import { BookReportModal } from './components/BookReportModal';
+import { StudentAuthModal } from './components/StudentAuthModal';
+import { BookExcerpt, TypingSettings, TypingSessionResult, StudentProfile, BookReport, StudentAccount } from './types';
+import { PUBLIC_DOMAIN_BOOKS } from './data/books';
+import {
+  getStoredHistory,
+  saveTypingResult,
+  clearHistoryStorage,
+  getStoredSettings,
+  saveStoredSettings,
+  getStoredStudentProfile,
+  saveStoredStudentProfile,
+  getStoredBookReports,
+  getCurrentStudentAccount,
+  setCurrentStudentAccount,
+  INITIAL_SAMPLE_RECORDS,
+} from './utils/storage';
+import { BookOpen, ShieldCheck, Trophy, Sparkles } from 'lucide-react';
+
+export default function App() {
+  const [currentView, setCurrentView] = useState<'typing' | 'books' | 'dashboard' | 'leaderboard' | 'reports'>('typing');
+  const [selectedBook, setSelectedBook] = useState<BookExcerpt>(PUBLIC_DOMAIN_BOOKS[0]);
+  const [history, setHistory] = useState<TypingSessionResult[]>([]);
+  const [settings, setSettings] = useState<TypingSettings>(getStoredSettings());
+  const [studentProfile, setStudentProfile] = useState<StudentProfile>(getStoredStudentProfile());
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+
+  // Student Account Authentication State (학교명/학년도/학년/반/번호/성명)
+  const [currentAccount, setCurrentAccount] = useState<StudentAccount | null>(getCurrentStudentAccount());
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authModalMode, setAuthModalMode] = useState<'login' | 'register'>('login');
+
+  // Book Reports State
+  const [reports, setReports] = useState<BookReport[]>([]);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [reportModalData, setReportModalData] = useState<{
+    book?: BookExcerpt;
+    typingResult?: TypingSessionResult;
+    initialReport?: BookReport;
+  }>({});
+
+  // Load history, profile, account & reports on initial render
+  useEffect(() => {
+    setHistory(getStoredHistory());
+    setSettings(getStoredSettings());
+    const acc = getCurrentStudentAccount();
+    setCurrentAccount(acc);
+    if (acc) {
+      const synchedProfile: StudentProfile = {
+        schoolYear: acc.schoolYear,
+        schoolName: acc.schoolName,
+        grade: acc.grade,
+        classNum: acc.classNum,
+        studentNum: acc.studentNum,
+        name: acc.name,
+        accountId: acc.id,
+      };
+      setStudentProfile(synchedProfile);
+      saveStoredStudentProfile(synchedProfile);
+    } else {
+      setStudentProfile(getStoredStudentProfile());
+    }
+    setReports(getStoredBookReports());
+  }, []);
+
+  const handleSelectBook = (book: BookExcerpt) => {
+    setSelectedBook(book);
+    setCurrentView('typing');
+  };
+
+  const handleSaveSession = (result: TypingSessionResult) => {
+    const sessionWithProfile: TypingSessionResult = {
+      ...result,
+      studentProfile,
+    };
+    const updated = saveTypingResult(sessionWithProfile);
+    setHistory(updated);
+  };
+
+  const handleSaveProfile = (newProfile: StudentProfile) => {
+    setStudentProfile(newProfile);
+    saveStoredStudentProfile(newProfile);
+  };
+
+  // Student Auth Handlers
+  const handleLoginSuccess = (account: StudentAccount) => {
+    setCurrentAccount(account);
+    const updatedProfile: StudentProfile = {
+      schoolYear: account.schoolYear,
+      schoolName: account.schoolName,
+      grade: account.grade,
+      classNum: account.classNum,
+      studentNum: account.studentNum,
+      name: account.name,
+      accountId: account.id,
+    };
+    setStudentProfile(updatedProfile);
+    saveStoredStudentProfile(updatedProfile);
+  };
+
+  const handleLogoutAccount = () => {
+    setCurrentStudentAccount(null);
+    setCurrentAccount(null);
+  };
+
+  const handleOpenAuthModal = (mode: 'login' | 'register' = 'login') => {
+    setAuthModalMode(mode);
+    setIsAuthModalOpen(true);
+  };
+
+  // Open Book Report Modal
+  const handleOpenReportModal = (
+    initialReport?: BookReport,
+    bookToReport?: BookExcerpt,
+    resultToReport?: TypingSessionResult
+  ) => {
+    const targetBook = bookToReport || (initialReport ? PUBLIC_DOMAIN_BOOKS.find(b => b.id === initialReport.excerptId) || selectedBook : selectedBook);
+    setReportModalData({
+      initialReport,
+      book: targetBook,
+      typingResult: resultToReport,
+    });
+    setIsReportModalOpen(true);
+  };
+
+  const handleSaveReportSuccess = (savedReport: BookReport) => {
+    setReports(getStoredBookReports());
+  };
+
+  const handleClearHistory = () => {
+    if (window.confirm('정말 모든 필사 통계 기록을 삭제하시겠습니까?')) {
+      clearHistoryStorage();
+      setHistory([]);
+    }
+  };
+
+  const handleResetSampleData = () => {
+    localStorage.setItem('literary_typing_history_v2', JSON.stringify(INITIAL_SAMPLE_RECORDS));
+    setHistory(INITIAL_SAMPLE_RECORDS);
+  };
+
+  const handleDeleteRecord = (id: string) => {
+    const updated = history.filter((h) => h.id !== id);
+    localStorage.setItem('literary_typing_history_v2', JSON.stringify(updated));
+    setHistory(updated);
+  };
+
+  const handleUpdateSettings = (newSettings: Partial<TypingSettings>) => {
+    const merged = { ...settings, ...newSettings };
+    setSettings(merged);
+    saveStoredSettings(merged);
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col bg-[#fbfaf8] text-stone-900 font-sans-kr selection:bg-amber-100 selection:text-amber-950">
+      {/* Top Navigation & Controls Bar */}
+      <Header
+        currentView={currentView}
+        setCurrentView={setCurrentView}
+        settings={settings}
+        onUpdateSettings={handleUpdateSettings}
+        activeBookTitle={selectedBook.bookTitle}
+        activeExcerptTitle={selectedBook.title}
+        studentProfile={studentProfile}
+        currentAccount={currentAccount}
+        onOpenAuthModal={handleOpenAuthModal}
+        onLogoutAccount={handleLogoutAccount}
+      />
+
+      {/* Main Content Area */}
+      <main className="flex-1 pb-16">
+        {currentView === 'typing' && (
+          <TypingArea
+            book={selectedBook}
+            settings={settings}
+            onUpdateSettings={handleUpdateSettings}
+            onSelectAnotherBook={() => setCurrentView('books')}
+            onSaveSession={handleSaveSession}
+            onGoToDashboard={() => setCurrentView('dashboard')}
+            studentProfile={studentProfile}
+            onGoToLeaderboard={() => setCurrentView('leaderboard')}
+            onWriteBookReport={(book, result) => handleOpenReportModal(undefined, book, result)}
+          />
+        )}
+
+        {currentView === 'books' && (
+          <BookSelector
+            activeExcerptId={selectedBook.id}
+            onSelectExcerpt={handleSelectBook}
+          />
+        )}
+
+        {currentView === 'leaderboard' && (
+          <ClassLeaderboard
+            currentProfile={studentProfile}
+            userHistory={history}
+            onOpenProfileModal={() => setIsProfileModalOpen(true)}
+            onStartTyping={() => setCurrentView('typing')}
+            currentAccount={currentAccount}
+            onOpenAuthModal={handleOpenAuthModal}
+          />
+        )}
+
+        {currentView === 'reports' && (
+          <BookReportsView
+            reports={reports}
+            studentProfile={studentProfile}
+            books={PUBLIC_DOMAIN_BOOKS}
+            onOpenReportModal={(report, book) => handleOpenReportModal(report, book)}
+            onRefreshReports={() => setReports(getStoredBookReports())}
+            onStartTyping={() => setCurrentView('typing')}
+          />
+        )}
+
+        {currentView === 'dashboard' && (
+          <Dashboard
+            history={history}
+            onClearHistory={handleClearHistory}
+            onResetSampleData={handleResetSampleData}
+            onDeleteRecord={handleDeleteRecord}
+            onStartTyping={() => setCurrentView('typing')}
+            onWriteReport={(record) => {
+              const matchedBook = PUBLIC_DOMAIN_BOOKS.find((b) => b.id === record.excerptId);
+              handleOpenReportModal(undefined, matchedBook, record);
+            }}
+          />
+        )}
+      </main>
+
+      {/* Student Authentication Modal (학교명/학년도/학년/반/번호/성명 로그인 및 회원가입) */}
+      <StudentAuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        currentAccount={currentAccount}
+        onLoginSuccess={handleLoginSuccess}
+        onLogout={handleLogoutAccount}
+        initialMode={authModalMode}
+      />
+
+      {/* Student Profile Setup/Edit Modal */}
+      <StudentProfileModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        currentProfile={studentProfile}
+        onSaveProfile={handleSaveProfile}
+      />
+
+      {/* Book Report Writing & PDF Print Modal */}
+      <BookReportModal
+        isOpen={isReportModalOpen}
+        onClose={() => setIsReportModalOpen(false)}
+        book={reportModalData.book || selectedBook}
+        typingResult={reportModalData.typingResult}
+        studentProfile={studentProfile}
+        initialReport={reportModalData.initialReport}
+        onSaveSuccess={handleSaveReportSuccess}
+      />
+
+      {/* Literary & Copyright Footer */}
+      <footer className="bg-stone-900 text-stone-400 text-xs py-8 border-t border-stone-800">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded bg-amber-500/20 text-amber-400 flex items-center justify-center">
+              <BookOpen className="w-3.5 h-3.5" />
+            </div>
+            <span className="font-batang font-bold text-stone-200 text-sm">문학 타자연습</span>
+            <span className="text-stone-500">|</span>
+            <span>공개 고전 문학 필사 및 학급 노력 순위 프로젝트</span>
+          </div>
+
+          <div className="flex items-center gap-2 text-center sm:text-right">
+            <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span className="text-stone-400">
+              본 서비스의 모든 수록작은 저작권 보호기간(사후 70년)이 만료된 퍼블릭 도메인 저작물입니다.
+            </span>
+          </div>
+        </div>
+      </footer>
+    </div>
+  );
+}
