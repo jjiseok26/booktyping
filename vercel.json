@@ -7,40 +7,13 @@
     "api/[...path].js": {
       "includeFiles": "server/schema.sql"
     },
-    "api/handler.js": {
-      "includeFiles": "server/schema.sql"
-    },
     "api/admin-login.js": {
       "includeFiles": "server/adminAuth.js"
-    },
-    "api/admin/login.js": {
-      "includeFiles": "server/adminAuth.js"
-    },
-    "api/admin/[...path].js": {
-      "includeFiles": "server/schema.sql"
     },
     "api/admin-me.js": {
       "includeFiles": "server/adminAuth.js"
     },
     "api/teacher-login.js": {
-      "includeFiles": "server/schema.sql"
-    },
-    "api/students/index.js": {
-      "includeFiles": "server/schema.sql"
-    },
-    "api/students/login.js": {
-      "includeFiles": "server/schema.sql"
-    },
-    "api/sessions/index.js": {
-      "includeFiles": "server/schema.sql"
-    },
-    "api/sessions/[...path].js": {
-      "includeFiles": "server/schema.sql"
-    },
-    "api/reports/index.js": {
-      "includeFiles": "server/schema.sql"
-    },
-    "api/reports/[...path].js": {
       "includeFiles": "server/schema.sql"
     }
   }

@@ -1,14 +1,11 @@
-import app from './_app.mjs';
+import handler, { config } from './_handler.js';
 
-export const config = {
-  runtime: 'nodejs',
-  maxDuration: 10,
-};
+export { config };
 
-export default async function handler(req, res) {
+export default async function teacherLogin(req, res) {
   if (!String(req.url || '').startsWith('/api/teacher-login')) {
     const query = String(req.url || '').includes('?') ? String(req.url).slice(String(req.url).indexOf('?')) : '';
     req.url = `/api/teacher-login${query}`;
   }
-  return app(req, res);
+  return handler(req, res);
 }

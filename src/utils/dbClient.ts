@@ -53,7 +53,7 @@ export async function apiLoginStudent(payload: {
   name: string;
 }): Promise<{ success: boolean; message: string; account?: StudentAccount }> {
   try {
-    return await request('/api/students/login', {
+    return await request('/api/student-login', {
       method: 'POST',
       body: JSON.stringify(payload),
     });
@@ -82,7 +82,7 @@ export async function apiSaveSession(
 
 export async function apiDeleteSession(studentId: string, sessionId: string): Promise<TypingSessionResult[]> {
   const data = await request<{ sessions: TypingSessionResult[] }>(
-    `/api/sessions/${encodeURIComponent(sessionId)}?studentId=${encodeURIComponent(studentId)}`,
+    `/api/session-item?id=${encodeURIComponent(sessionId)}&studentId=${encodeURIComponent(studentId)}`,
     { method: 'DELETE' }
   );
   return data.sessions || [];
@@ -109,7 +109,7 @@ export async function apiSaveReport(studentId: string, report: BookReport): Prom
 
 export async function apiDeleteReport(studentId: string, reportId: string): Promise<BookReport[]> {
   const data = await request<{ reports: BookReport[] }>(
-    `/api/reports/${encodeURIComponent(reportId)}?studentId=${encodeURIComponent(studentId)}`,
+    `/api/report-item?id=${encodeURIComponent(reportId)}&studentId=${encodeURIComponent(studentId)}`,
     { method: 'DELETE' }
   );
   return data.reports || [];
@@ -214,7 +214,7 @@ export async function apiTeacherLogin(username: string, password: string) {
 
 export async function apiAdminLogout(): Promise<void> {
   try {
-    await adminRequest('/api/admin/logout', { method: 'POST' });
+    await adminRequest('/api/admin-logout', { method: 'POST' });
   } finally {
     setAdminToken(null);
   }
@@ -234,7 +234,7 @@ export async function apiAdminMe() {
 
 export async function apiAdminOverview() {
   const data = await adminRequest<{ overview: { studentCount: number; sessionCount: number; reportCount: number } }>(
-    '/api/admin/overview'
+    '/api/admin-overview'
   );
   return data.overview;
 }
@@ -242,38 +242,38 @@ export async function apiAdminOverview() {
 export async function apiAdminStudents() {
   const data = await adminRequest<{
     students: Array<StudentAccount & { sessionCount: number; reportCount: number; totalChars: number }>;
-  }>('/api/admin/students');
+  }>('/api/admin-students');
   return data.students || [];
 }
 
 export async function apiAdminDeleteStudent(id: string) {
   const data = await adminRequest<{
     students: Array<StudentAccount & { sessionCount: number; reportCount: number; totalChars: number }>;
-  }>(`/api/admin/students/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }>(`/api/admin-students?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
   return data.students || [];
 }
 
 export async function apiAdminSessions() {
-  const data = await adminRequest<{ sessions: TypingSessionResult[] }>('/api/admin/sessions');
+  const data = await adminRequest<{ sessions: TypingSessionResult[] }>('/api/admin-sessions');
   return data.sessions || [];
 }
 
 export async function apiAdminDeleteSession(id: string, studentId: string) {
   const data = await adminRequest<{ sessions: TypingSessionResult[] }>(
-    `/api/admin/sessions/${encodeURIComponent(id)}?studentId=${encodeURIComponent(studentId)}`,
+    `/api/admin-sessions?id=${encodeURIComponent(id)}&studentId=${encodeURIComponent(studentId)}`,
     { method: 'DELETE' }
   );
   return data.sessions || [];
 }
 
 export async function apiAdminReports() {
-  const data = await adminRequest<{ reports: BookReport[] }>('/api/admin/reports');
+  const data = await adminRequest<{ reports: BookReport[] }>('/api/admin-reports');
   return data.reports || [];
 }
 
 export async function apiAdminDeleteReport(id: string, studentId: string) {
   const data = await adminRequest<{ reports: BookReport[] }>(
-    `/api/admin/reports/${encodeURIComponent(id)}?studentId=${encodeURIComponent(studentId)}`,
+    `/api/admin-reports?id=${encodeURIComponent(id)}&studentId=${encodeURIComponent(studentId)}`,
     { method: 'DELETE' }
   );
   return data.reports || [];
@@ -282,14 +282,14 @@ export async function apiAdminDeleteReport(id: string, studentId: string) {
 export async function apiAdminTeachers() {
   const data = await adminRequest<{
     teachers: Array<{ id: string; schoolName: string; username: string; createdAt: number; lastLoginAt: number }>;
-  }>('/api/admin/teachers');
+  }>('/api/admin-teachers');
   return data.teachers || [];
 }
 
 export async function apiAdminCreateTeacher(payload: { schoolName: string; username: string; password: string }) {
   return adminRequest<{
     teachers?: Array<{ id: string; schoolName: string; username: string; createdAt: number; lastLoginAt: number }>;
-  }>('/api/admin/teachers', {
+  }>('/api/admin-teachers', {
     method: 'POST',
     body: JSON.stringify(payload),
   });
@@ -298,6 +298,6 @@ export async function apiAdminCreateTeacher(payload: { schoolName: string; usern
 export async function apiAdminDeleteTeacher(id: string) {
   const data = await adminRequest<{
     teachers: Array<{ id: string; schoolName: string; username: string; createdAt: number; lastLoginAt: number }>;
-  }>(`/api/admin/teachers/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }>(`/api/admin-teachers?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
   return data.teachers || [];
 }

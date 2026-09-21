@@ -65,9 +65,29 @@ function parseJsonBody(
 
 app.use((req, _res, next) => {
   const url = req.url || '';
-  const pathOnly = url.split('?')[0];
-  if (pathOnly === '/admin' || pathOnly.startsWith('/admin/')) {
-    req.url = `/api${url.startsWith('/') ? url : `/${url}`}`;
+  const parsed = new URL(url, 'http://localhost');
+  const aliases: Record<string, string> = {
+    '/api/student-login': '/api/students/login',
+    '/api/admin-overview': '/api/admin/overview',
+    '/api/admin-students': '/api/admin/students',
+    '/api/admin-sessions': '/api/admin/sessions',
+    '/api/admin-reports': '/api/admin/reports',
+    '/api/admin-teachers': '/api/admin/teachers',
+    '/api/admin-logout': '/api/admin/logout',
+    '/api/session-item': '/api/sessions',
+    '/api/report-item': '/api/reports',
+  };
+  const mapped = aliases[parsed.pathname];
+  if (mapped) {
+    const id = parsed.searchParams.get('id');
+    parsed.searchParams.delete('id');
+    parsed.pathname = id ? `${mapped}/${id}` : mapped;
+    req.url = `${parsed.pathname}${parsed.search}`;
+  } else {
+    const pathOnly = url.split('?')[0];
+    if (pathOnly === '/admin' || pathOnly.startsWith('/admin/')) {
+      req.url = `/api${url.startsWith('/') ? url : `/${url}`}`;
+    }
   }
   next();
 });
