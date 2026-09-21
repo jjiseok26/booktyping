@@ -12,8 +12,8 @@ CREATE TABLE IF NOT EXISTS students (
   class_num INTEGER NOT NULL,
   student_num INTEGER NOT NULL,
   name TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  last_login_at INTEGER NOT NULL,
+  created_at BIGINT NOT NULL,
+  last_login_at BIGINT NOT NULL,
   UNIQUE (school_year, school_name, grade, class_num, student_num)
 );
 
@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS typing_sessions (
   duration_seconds INTEGER NOT NULL,
   mistyped_letters TEXT NOT NULL DEFAULT '{}',
   effort_points INTEGER NOT NULL DEFAULT 0,
-  created_at INTEGER NOT NULL
+  created_at BIGINT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_student ON typing_sessions (student_id, created_at DESC);
@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS book_reports (
   content TEXT NOT NULL DEFAULT '',
   personal_takeaway TEXT NOT NULL DEFAULT '',
   paragraph_notes TEXT NOT NULL DEFAULT '[]',
-  created_at INTEGER NOT NULL
+  created_at BIGINT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_reports_student ON book_reports (student_id, created_at DESC);
@@ -66,21 +66,21 @@ CREATE TABLE IF NOT EXISTS teachers (
   school_name TEXT NOT NULL,
   username TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  last_login_at INTEGER NOT NULL
+  created_at BIGINT NOT NULL,
+  last_login_at BIGINT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS admins (
   id TEXT PRIMARY KEY,
   username TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  last_login_at INTEGER NOT NULL
+  created_at BIGINT NOT NULL,
+  last_login_at BIGINT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS admin_sessions (
   token_hash TEXT PRIMARY KEY,
   admin_id TEXT NOT NULL REFERENCES admins(id) ON DELETE CASCADE,
-  created_at INTEGER NOT NULL,
-  expires_at INTEGER NOT NULL
+  created_at BIGINT NOT NULL,
+  expires_at BIGINT NOT NULL
 );

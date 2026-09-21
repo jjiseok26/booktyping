@@ -245,8 +245,8 @@ async function migrateExtraColumns(): Promise<void> {
       school_name TEXT NOT NULL,
       username TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
-      last_login_at INTEGER NOT NULL
+      created_at BIGINT NOT NULL,
+      last_login_at BIGINT NOT NULL
     )`,
   ];
   for (const sql of statements) {
@@ -260,6 +260,27 @@ async function migrateExtraColumns(): Promise<void> {
     await runRaw(`ALTER TABLE book_reports ADD COLUMN paragraph_notes TEXT NOT NULL DEFAULT '[]'`);
   } catch {
     // column already exists
+  }
+  if (usePostgres()) {
+    const timestampAlters = [
+      'ALTER TABLE students ALTER COLUMN created_at TYPE BIGINT',
+      'ALTER TABLE students ALTER COLUMN last_login_at TYPE BIGINT',
+      'ALTER TABLE typing_sessions ALTER COLUMN created_at TYPE BIGINT',
+      'ALTER TABLE book_reports ALTER COLUMN created_at TYPE BIGINT',
+      'ALTER TABLE teachers ALTER COLUMN created_at TYPE BIGINT',
+      'ALTER TABLE teachers ALTER COLUMN last_login_at TYPE BIGINT',
+      'ALTER TABLE admins ALTER COLUMN created_at TYPE BIGINT',
+      'ALTER TABLE admins ALTER COLUMN last_login_at TYPE BIGINT',
+      'ALTER TABLE admin_sessions ALTER COLUMN created_at TYPE BIGINT',
+      'ALTER TABLE admin_sessions ALTER COLUMN expires_at TYPE BIGINT',
+    ];
+    for (const sql of timestampAlters) {
+      try {
+        await runRaw(sql);
+      } catch {
+        // table/column may not exist yet
+      }
+    }
   }
 }
 
