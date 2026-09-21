@@ -13,6 +13,9 @@ import {
   loginAdmin,
   getAdminByToken,
   getAdminOverview,
+  createTeacher,
+  loginTeacher,
+  listAllStudents,
 } from './db';
 
 const dbFile = path.join(process.cwd(), 'data', 'booktyping.check.sqlite');
@@ -137,6 +140,26 @@ async function main() {
     name: '박민수',
   });
   if (!expandedLogin.success) throw new Error(expandedLogin.message);
+
+  const teacherDenied = await loginTeacher(DEFAULT_ADMIN_USERNAME, DEFAULT_ADMIN_PASSWORD);
+  if (teacherDenied.success) throw new Error('admin credentials should not work on teacher login');
+
+  const teacherCreated = await createTeacher({
+    schoolName: '금구중',
+    username: 'geumgu-teacher',
+    password: 'class1234',
+  });
+  if (!teacherCreated.success || teacherCreated.teacher?.schoolName !== '금구중학교') {
+    throw new Error(teacherCreated.message);
+  }
+  const teacherOk = await loginTeacher('geumgu-teacher', 'class1234');
+  if (!teacherOk.success || teacherOk.role !== 'teacher' || teacherOk.admin?.schoolName !== '금구중학교') {
+    throw new Error(teacherOk.message);
+  }
+  const teacherRows = await listAllStudents(teacherOk.admin?.schoolName);
+  if (teacherRows.some((row) => row.schoolName !== '금구중학교')) {
+    throw new Error('teacher school scope leaked other schools');
+  }
 
   const overview = await getAdminOverview();
   if (overview.studentCount < 1) throw new Error('admin overview missing students');

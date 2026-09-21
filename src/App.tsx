@@ -36,7 +36,10 @@ import { AdminView } from './components/AdminView';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<'typing' | 'books' | 'dashboard' | 'leaderboard' | 'reports' | 'admin'>(
-    window.location.hash === '#admin' ? 'admin' : 'typing'
+    window.location.hash === '#admin' || window.location.hash === '#teacher' ? 'admin' : 'typing'
+  );
+  const [staffLoginMode, setStaffLoginMode] = useState<'admin' | 'teacher'>(
+    window.location.hash === '#teacher' ? 'teacher' : 'admin'
   );
   const [selectedBook, setSelectedBook] = useState<BookExcerpt>(PUBLIC_DOMAIN_BOOKS[0]);
   const [history, setHistory] = useState<TypingSessionResult[]>([]);
@@ -233,8 +236,10 @@ export default function App() {
     <div className="min-h-screen flex flex-col bg-[#fbfaf8] text-stone-900 font-sans-kr selection:bg-amber-100 selection:text-amber-950">
       {currentView === 'admin' ? (
         <AdminView
+          loginMode={staffLoginMode}
           onBack={() => {
             window.location.hash = '';
+            setStaffLoginMode('admin');
             setCurrentView('typing');
           }}
         />
@@ -252,6 +257,11 @@ export default function App() {
         currentAccount={currentAccount}
         onOpenAuthModal={handleOpenAuthModal}
         onLogoutAccount={handleLogoutAccount}
+        onOpenTeacherLogin={() => {
+          window.location.hash = 'teacher';
+          setStaffLoginMode('teacher');
+          setCurrentView('admin');
+        }}
       />
 
       {/* Main Content Area */}
@@ -370,7 +380,19 @@ export default function App() {
             <span className="text-stone-600">|</span>
             <button
               onClick={() => {
+                window.location.hash = 'teacher';
+                setStaffLoginMode('teacher');
+                setCurrentView('admin');
+              }}
+              className="text-stone-500 hover:text-amber-300"
+            >
+              선생님 로그인
+            </button>
+            <span className="text-stone-600">|</span>
+            <button
+              onClick={() => {
                 window.location.hash = 'admin';
+                setStaffLoginMode('admin');
                 setCurrentView('admin');
               }}
               className="text-stone-500 hover:text-amber-300"

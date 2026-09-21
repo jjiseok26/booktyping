@@ -13,6 +13,7 @@ interface HeaderProps {
   currentAccount?: StudentAccount | null;
   onOpenAuthModal?: (mode?: 'login' | 'register') => void;
   onLogoutAccount?: () => void;
+  onOpenTeacherLogin?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -26,6 +27,7 @@ export const Header: React.FC<HeaderProps> = ({
   currentAccount,
   onOpenAuthModal,
   onLogoutAccount,
+  onOpenTeacherLogin,
 }) => {
   const [showSettingsDropdown, setShowSettingsDropdown] = useState(false);
   const [showCopyrightModal, setShowCopyrightModal] = useState(false);
@@ -241,6 +243,17 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
                 </div>
               )
+            )}
+
+            {onOpenTeacherLogin && (
+              <button
+                id="btn-header-teacher-login"
+                onClick={onOpenTeacherLogin}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-semibold border border-stone-700 transition-all active:scale-95 shrink-0"
+              >
+                <School className="w-3.5 h-3.5 text-amber-400" />
+                <span>선생님 로그인</span>
+              </button>
             )}
 
             {/* Sound toggle quick button */}

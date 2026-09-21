@@ -27,6 +27,7 @@ import {
   apiAdminSessions,
   apiAdminStudents,
   apiAdminTeachers,
+  apiTeacherLogin,
   getAdminToken,
   setAdminToken,
 } from '../utils/dbClient';
@@ -39,10 +40,11 @@ type TeacherRow = { id: string; schoolName: string; username: string; createdAt:
 
 interface AdminViewProps {
   onBack: () => void;
+  loginMode?: StaffRole;
 }
 
-export const AdminView: React.FC<AdminViewProps> = ({ onBack }) => {
-  const [username, setUsername] = useState('admin');
+export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin' }) => {
+  const [username, setUsername] = useState(loginMode === 'admin' ? 'admin' : '');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [adminName, setAdminName] = useState<string | null>(null);
@@ -109,13 +111,19 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack }) => {
     const nextUsername = (username || String(form.get('username') || '')).trim();
     const nextPassword = password || String(form.get('password') || '');
     try {
-      const result = await apiAdminLogin(nextUsername, nextPassword);
+      const result = loginMode === 'teacher' ? await apiTeacherLogin(nextUsername, nextPassword) : await apiAdminLogin(nextUsername, nextPassword);
       if (!result.success || !result.admin) {
         setError(result.message || '로그인에 실패했습니다.');
         return;
       }
+      const nextRole = result.admin.role === 'teacher' || result.role === 'teacher' ? 'teacher' : 'admin';
+      if (loginMode === 'teacher' && nextRole !== 'teacher') {
+        setAdminToken(null);
+        setError('선생님 계정으로 로그인해 주세요.');
+        return;
+      }
       setAdminName(result.admin.username);
-      setStaffRole(result.admin.role === 'teacher' || result.role === 'teacher' ? 'teacher' : 'admin');
+      setStaffRole(nextRole);
       setStaffSchool(result.admin.schoolName || '');
       setPassword('');
       try {
@@ -139,34 +147,51 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack }) => {
     setTeachers([]);
   };
 
+  const scopedStudents = useMemo(
+    () => (isAdmin || !staffSchool ? students : students.filter((student) => student.schoolName === staffSchool)),
+    [isAdmin, staffSchool, students]
+  );
+  const scopedSessions = useMemo(
+    () =>
+      isAdmin || !staffSchool
+        ? sessions
+        : sessions.filter((session) => session.studentProfile?.schoolName === staffSchool),
+    [isAdmin, staffSchool, sessions]
+  );
+  const scopedReports = useMemo(
+    () =>
+      isAdmin || !staffSchool ? reports : reports.filter((report) => report.studentProfile?.schoolName === staffSchool),
+    [isAdmin, staffSchool, reports]
+  );
+
   const filteredStudents = useMemo(() => {
     const q = query.trim();
-    if (!q) return students;
-    return students.filter((student) =>
+    if (!q) return scopedStudents;
+    return scopedStudents.filter((student) =>
       `${student.schoolName} ${student.grade} ${student.classNum} ${student.studentNum} ${student.name}`.includes(q)
     );
-  }, [students, query]);
+  }, [scopedStudents, query]);
 
   const filteredSessions = useMemo(() => {
     const q = query.trim();
-    if (!q) return sessions;
-    return sessions.filter((session) =>
+    if (!q) return scopedSessions;
+    return scopedSessions.filter((session) =>
       `${session.studentProfile?.name} ${session.bookTitle} ${session.excerptTitle}`.includes(q)
     );
-  }, [sessions, query]);
+  }, [scopedSessions, query]);
 
   const filteredReports = useMemo(() => {
     const q = query.trim();
-    if (!q) return reports;
-    return reports.filter((report) =>
+    if (!q) return scopedReports;
+    return scopedReports.filter((report) =>
       `${report.studentProfile?.name} ${report.bookTitle} ${report.title}`.includes(q)
     );
-  }, [reports, query]);
+  }, [scopedReports, query]);
 
   if (loading) {
     return (
       <div className="min-h-screen bg-[#fbfaf8] flex items-center justify-center text-stone-500">
-        관리자 화면을 불러오는 중...
+        화면을 불러오는 중...
       </div>
     );
   }
@@ -183,8 +208,12 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack }) => {
               <Lock className="w-5 h-5" />
             </div>
             <div>
-              <h1 className="text-lg font-bold">관리자 · 담임교사 로그인</h1>
-              <p className="text-xs text-stone-400">관리자는 담임 아이디를 만들고, 담임은 해당 학교 학생 활동을 확인합니다.</p>
+              <h1 className="text-lg font-bold">{loginMode === 'teacher' ? '선생님 로그인' : '관리자 로그인'}</h1>
+              <p className="text-xs text-stone-400">
+                {loginMode === 'teacher'
+                  ? '담임교사 아이디로 로그인하면 우리 학교 학생의 필사·독후 활동만 확인할 수 있습니다.'
+                  : '관리자는 학교별 담임 아이디를 만들고 전체 활동을 확인합니다.'}
+              </p>
             </div>
           </div>
           <form onSubmit={handleLogin} className="space-y-3">
@@ -215,7 +244,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack }) => {
               disabled={submitting}
               className="w-full mt-2 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-60 text-stone-950 font-semibold text-sm"
             >
-              {submitting ? '로그인 중...' : '로그인'}
+              {submitting ? '로그인 중...' : loginMode === 'teacher' ? '선생님 로그인' : '로그인'}
             </button>
           </form>
         </div>
@@ -254,7 +283,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack }) => {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-5">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <StatCard icon={<Users className="w-4 h-4" />} label="등록 학생" value={overview.studentCount} />
+          <StatCard icon={<Users className="w-4 h-4" />} label={isAdmin ? '등록 학생' : `${staffSchool} 학생`} value={overview.studentCount} />
           <StatCard icon={<Keyboard className="w-4 h-4" />} label="필사 기록" value={overview.sessionCount} />
           <StatCard icon={<FileText className="w-4 h-4" />} label="독후감" value={overview.reportCount} />
         </div>

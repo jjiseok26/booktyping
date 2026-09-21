@@ -192,6 +192,26 @@ export async function apiAdminLogin(username: string, password: string) {
   }
 }
 
+export async function apiTeacherLogin(username: string, password: string) {
+  try {
+    const data = await request<{
+      token?: string;
+      role?: 'admin' | 'teacher';
+      admin?: { id: string; username: string; role?: 'admin' | 'teacher'; schoolName?: string };
+    }>('/api/teacher-login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    });
+    if (data.token) setAdminToken(data.token);
+    return data;
+  } catch (error) {
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : '선생님 로그인에 실패했습니다.',
+    };
+  }
+}
+
 export async function apiAdminLogout(): Promise<void> {
   try {
     await adminRequest('/api/admin/logout', { method: 'POST' });

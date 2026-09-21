@@ -20,6 +20,7 @@ import {
   listTeachers,
   loginAdmin,
   loginStudent,
+  loginTeacher,
   logoutAdmin,
   registerStudent,
   saveReport,
@@ -89,6 +90,10 @@ async function requireStaff(req: express.Request, res: express.Response) {
   const staff = await getAdminByToken(readToken(req));
   if (!staff) {
     res.status(401).json({ success: false, message: '관리자 로그인이 필요합니다.' });
+    return null;
+  }
+  if (staff.role === 'teacher' && !staff.schoolName) {
+    res.status(403).json({ success: false, message: '학교 정보가 없는 선생님 계정입니다.' });
     return null;
   }
   return staff;
@@ -269,6 +274,14 @@ app.post(
   '/api/admin/login',
   asyncRoute(async (req, res) => {
     const result = await loginAdmin(String(req.body?.username || ''), String(req.body?.password || ''));
+    res.status(result.success ? 200 : 401).json(result);
+  })
+);
+
+app.post(
+  '/api/teacher-login',
+  asyncRoute(async (req, res) => {
+    const result = await loginTeacher(String(req.body?.username || ''), String(req.body?.password || ''));
     res.status(result.success ? 200 : 401).json(result);
   })
 );

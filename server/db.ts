@@ -785,6 +785,20 @@ export async function loginAdmin(
   return { success: false, message: '아이디 또는 비밀번호가 올바르지 않습니다.' };
 }
 
+export async function loginTeacher(
+  username: string,
+  password: string
+): Promise<{ success: boolean; message: string; token?: string; role?: StaffRole; admin?: AdminAccount }> {
+  const result = await loginAdmin(username, password);
+  if (!result.success) {
+    return { success: false, message: '선생님 아이디 또는 비밀번호가 올바르지 않습니다.' };
+  }
+  if (result.role !== 'teacher' || !result.admin?.schoolName) {
+    return { success: false, message: '선생님 계정으로 로그인해 주세요. 관리자는 관리자 로그인을 이용하세요.' };
+  }
+  return result;
+}
+
 export async function getAdminByToken(token: string): Promise<AdminAccount | null> {
   if (!token) return null;
   const signed = readStaffToken(token);
