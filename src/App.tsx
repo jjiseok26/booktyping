@@ -22,7 +22,6 @@ import {
   getCurrentStudentAccount,
   setCurrentStudentAccount,
   rememberRecentAccount,
-  INITIAL_SAMPLE_RECORDS,
 } from './utils/storage';
 import {
   apiClearSessions,
@@ -31,7 +30,7 @@ import {
   apiListSessions,
   apiSaveSession,
 } from './utils/dbClient';
-import { BookOpen, ShieldCheck, Trophy, Sparkles } from 'lucide-react';
+import { BookOpen, ShieldCheck } from 'lucide-react';
 import { AdminView } from './components/AdminView';
 
 export default function App() {
@@ -209,11 +208,6 @@ export default function App() {
     }
   };
 
-  const handleResetSampleData = () => {
-    localStorage.setItem('literary_typing_history_v2', JSON.stringify(INITIAL_SAMPLE_RECORDS));
-    setHistory(INITIAL_SAMPLE_RECORDS);
-  };
-
   const handleDeleteRecord = (id: string) => {
     if (currentAccount) {
       void apiDeleteSession(currentAccount.id, id).then(setHistory).catch(() => {
@@ -320,7 +314,6 @@ export default function App() {
           <Dashboard
             history={history}
             onClearHistory={handleClearHistory}
-            onResetSampleData={handleResetSampleData}
             onDeleteRecord={handleDeleteRecord}
             onStartTyping={() => setCurrentView('typing')}
             onWriteReport={(record) => {

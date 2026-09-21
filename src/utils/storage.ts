@@ -20,28 +20,6 @@ export const INITIAL_GUEST_PROFILE: StudentProfile = {
   name: '',
 };
 
-export const DEFAULT_STUDENT_ACCOUNT: StudentAccount = {
-  id: '2026학년도_가온중학교_2_3_15',
-  schoolYear: '2026학년도',
-  schoolName: '가온중학교',
-  grade: 2,
-  classNum: 3,
-  studentNum: 15,
-  name: '김지민',
-  createdAt: 1711000000000,
-  lastLoginAt: Date.now(),
-};
-
-export const DEFAULT_STUDENT_PROFILE: StudentProfile = {
-  schoolYear: '2026학년도',
-  schoolName: '가온중학교',
-  grade: 2,
-  classNum: 3,
-  studentNum: 15,
-  name: '김지민',
-  accountId: '2026학년도_가온중학교_2_3_15',
-};
-
 export const DEFAULT_SETTINGS: TypingSettings = {
   font: 'batang',
   fontSize: 'lg',
@@ -51,103 +29,23 @@ export const DEFAULT_SETTINGS: TypingSettings = {
   autoNextSentence: true,
 };
 
-// Seed realistic practice history for beautiful charts on first launch
-export const INITIAL_SAMPLE_RECORDS: TypingSessionResult[] = [
-  {
-    id: 'sample-1',
-    timestamp: Date.now() - 1000 * 60 * 60 * 48, // 2 days ago
-    excerptId: 'yoon-seosi',
-    bookTitle: '하늘과 바람과 별과 시',
-    author: '윤동주',
-    excerptTitle: '서시 (序詩)',
-    cpm: 310,
-    wpm: 62,
-    peakCpm: 360,
-    accuracy: 96.5,
-    errorCount: 3,
-    totalChars: 125,
-    totalStrokes: 298,
-    durationSeconds: 58,
-    mistypedLetters: { 'ㄹ': 2, '이': 1 },
-  },
-  {
-    id: 'sample-2',
-    timestamp: Date.now() - 1000 * 60 * 60 * 36, // 1.5 days ago
-    excerptId: 'kim-dongbaek',
-    bookTitle: '동백꽃',
-    author: '김유정',
-    excerptTitle: '점순이와 알싸한 동백꽃',
-    cpm: 345,
-    wpm: 69,
-    peakCpm: 395,
-    accuracy: 97.8,
-    errorCount: 2,
-    totalChars: 168,
-    totalStrokes: 412,
-    durationSeconds: 71,
-    mistypedLetters: { 'ㅐ': 1, 'ㅂ': 1 },
-  },
-  {
-    id: 'sample-3',
-    timestamp: Date.now() - 1000 * 60 * 60 * 24, // 1 day ago
-    excerptId: 'lee-hyoseok-memil',
-    bookTitle: '메밀꽃 필 무렵',
-    author: '이효석',
-    excerptTitle: '달밤의 메밀밭 길',
-    cpm: 382,
-    wpm: 76,
-    peakCpm: 430,
-    accuracy: 98.4,
-    errorCount: 2,
-    totalChars: 210,
-    totalStrokes: 520,
-    durationSeconds: 82,
-    mistypedLetters: { 'ㅢ': 1, 'ㅅ': 1 },
-  },
-  {
-    id: 'sample-4',
-    timestamp: Date.now() - 1000 * 60 * 60 * 12, // 12 hours ago
-    excerptId: 'saint-exupery-prince',
-    bookTitle: '어린 왕자',
-    author: '생텍쥐페리',
-    excerptTitle: '마음으로 보아야 보이는 것',
-    cpm: 405,
-    wpm: 81,
-    peakCpm: 465,
-    accuracy: 99.1,
-    errorCount: 1,
-    totalChars: 185,
-    totalStrokes: 440,
-    durationSeconds: 65,
-    mistypedLetters: { 'ㅓ': 1 },
-  },
-  {
-    id: 'sample-5',
-    timestamp: Date.now() - 1000 * 60 * 60 * 2, // 2 hours ago
-    excerptId: 'yoon-byeol',
-    bookTitle: '하늘과 바람과 별과 시',
-    author: '윤동주',
-    excerptTitle: '별 헤는 밤',
-    cpm: 428,
-    wpm: 85,
-    peakCpm: 490,
-    accuracy: 98.8,
-    errorCount: 3,
-    totalChars: 245,
-    totalStrokes: 610,
-    durationSeconds: 85,
-    mistypedLetters: { 'ㄹ': 1, 'ㅁ': 1, 'ㄴ': 1 },
-  }
-];
+function isDemoRecordId(id: unknown): boolean {
+  const value = String(id || '');
+  return value.startsWith('sample-') || value.startsWith('report-sample-') || value.startsWith('peer-');
+}
 
 export function getStoredHistory(): TypingSessionResult[] {
   if (typeof window === 'undefined') return [];
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.HISTORY);
-    if (!raw) {
-      return [];
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const cleaned = parsed.filter((item: { id?: string }) => item?.id && !isDemoRecordId(item.id));
+    if (cleaned.length !== parsed.length) {
+      localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(cleaned));
     }
-    return JSON.parse(raw);
+    return cleaned;
   } catch {
     return [];
   }
@@ -191,6 +89,18 @@ export function saveStoredSettings(settings: TypingSettings): void {
 }
 
 // Student Profile Management
+function isLegacyDemoProfile(profile: { schoolName?: string; grade?: number; classNum?: number; studentNum?: number; name?: string; id?: string; accountId?: string }): boolean {
+  const id = String(profile.id || profile.accountId || '');
+  if (id === '2026학년도_가온중학교_2_3_15') return true;
+  return (
+    profile.schoolName === '가온중학교' &&
+    profile.grade === 2 &&
+    profile.classNum === 3 &&
+    profile.studentNum === 15 &&
+    profile.name === '김지민'
+  );
+}
+
 export function getStoredStudentProfile(): StudentProfile {
   if (typeof window === 'undefined') return INITIAL_GUEST_PROFILE;
   try {
@@ -198,7 +108,12 @@ export function getStoredStudentProfile(): StudentProfile {
     if (!raw) {
       return INITIAL_GUEST_PROFILE;
     }
-    return { ...INITIAL_GUEST_PROFILE, ...JSON.parse(raw) };
+    const profile = { ...INITIAL_GUEST_PROFILE, ...JSON.parse(raw) };
+    if (isLegacyDemoProfile(profile)) {
+      localStorage.setItem(STORAGE_KEYS.STUDENT_PROFILE, JSON.stringify(INITIAL_GUEST_PROFILE));
+      return INITIAL_GUEST_PROFILE;
+    }
+    return profile;
   } catch {
     return INITIAL_GUEST_PROFILE;
   }
@@ -243,12 +158,12 @@ export function getRecentStudentAccounts(): StudentAccount[] {
     const recentRaw = localStorage.getItem(STORAGE_KEYS.RECENT_ACCOUNTS);
     if (recentRaw) {
       const parsed = JSON.parse(recentRaw);
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed)) return parsed.filter((item: StudentAccount) => !isLegacyDemoProfile(item));
     }
     const legacyRaw = localStorage.getItem(STORAGE_KEYS.STUDENT_ACCOUNTS);
     if (!legacyRaw) return [];
     const parsed = JSON.parse(legacyRaw);
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed) ? parsed.filter((item: StudentAccount) => !isLegacyDemoProfile(item)) : [];
   } catch {
     return [];
   }
@@ -262,7 +177,7 @@ export function getStoredStudentAccounts(): StudentAccount[] {
       return [];
     }
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed) ? parsed.filter((item: StudentAccount) => !isLegacyDemoProfile(item)) : [];
   } catch {
     return [];
   }
@@ -283,7 +198,12 @@ export function getCurrentStudentAccount(): StudentAccount | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.CURRENT_STUDENT_ACCOUNT);
     if (!raw || raw === 'null') return null;
-    return JSON.parse(raw);
+    const account = JSON.parse(raw) as StudentAccount;
+    if (isLegacyDemoProfile(account)) {
+      localStorage.setItem(STORAGE_KEYS.CURRENT_STUDENT_ACCOUNT, 'null');
+      return null;
+    }
+    return account;
   } catch {
     return null;
   }
@@ -576,155 +496,6 @@ export function getTitleBadge(record: {
   return '📖 문학 꿈나무';
 }
 
-// Generate realistic classmate data for a school/class
-interface ClassmateSeed {
-  studentNum: number;
-  name: string;
-  totalChars: number;
-  completedSessions: number;
-  totalPracticeTimeSec: number;
-  peakCpm: number;
-  avgCpm: number;
-  avgAccuracy: number;
-  lastActive: string;
-}
-
-const BASE_CLASSMATES: ClassmateSeed[] = [
-  {
-    studentNum: 1,
-    name: '강지안',
-    totalChars: 4850,
-    completedSessions: 22,
-    totalPracticeTimeSec: 1420,
-    peakCpm: 340,
-    avgCpm: 310,
-    avgAccuracy: 98.4,
-    lastActive: '10분 전',
-  },
-  {
-    studentNum: 4,
-    name: '박서아',
-    totalChars: 4230,
-    completedSessions: 19,
-    totalPracticeTimeSec: 1250,
-    peakCpm: 390,
-    avgCpm: 335,
-    avgAccuracy: 97.9,
-    lastActive: '25분 전',
-  },
-  {
-    studentNum: 7,
-    name: '이준서',
-    totalChars: 3720,
-    completedSessions: 16,
-    totalPracticeTimeSec: 1110,
-    peakCpm: 460,
-    avgCpm: 410,
-    avgAccuracy: 96.8,
-    lastActive: '40분 전',
-  },
-  {
-    studentNum: 9,
-    name: '정하은',
-    totalChars: 3410,
-    completedSessions: 15,
-    totalPracticeTimeSec: 990,
-    peakCpm: 320,
-    avgCpm: 295,
-    avgAccuracy: 99.2,
-    lastActive: '1시간 전',
-  },
-  {
-    studentNum: 12,
-    name: '유시우',
-    totalChars: 2940,
-    completedSessions: 13,
-    totalPracticeTimeSec: 860,
-    peakCpm: 480,
-    avgCpm: 425,
-    avgAccuracy: 95.5,
-    lastActive: '2시간 전',
-  },
-  {
-    studentNum: 18,
-    name: '윤도현',
-    totalChars: 2650,
-    completedSessions: 11,
-    totalPracticeTimeSec: 780,
-    peakCpm: 350,
-    avgCpm: 315,
-    avgAccuracy: 97.2,
-    lastActive: '3시간 전',
-  },
-  {
-    studentNum: 21,
-    name: '송민서',
-    totalChars: 2100,
-    completedSessions: 9,
-    totalPracticeTimeSec: 620,
-    peakCpm: 290,
-    avgCpm: 260,
-    avgAccuracy: 98.1,
-    lastActive: '어제',
-  },
-  {
-    studentNum: 23,
-    name: '임수아',
-    totalChars: 1850,
-    completedSessions: 8,
-    totalPracticeTimeSec: 540,
-    peakCpm: 520,
-    avgCpm: 460,
-    avgAccuracy: 94.8,
-    lastActive: '어제',
-  },
-  {
-    studentNum: 26,
-    name: '조우진',
-    totalChars: 1540,
-    completedSessions: 7,
-    totalPracticeTimeSec: 460,
-    peakCpm: 310,
-    avgCpm: 280,
-    avgAccuracy: 96.5,
-    lastActive: '어제',
-  },
-  {
-    studentNum: 28,
-    name: '한예은',
-    totalChars: 1220,
-    completedSessions: 5,
-    totalPracticeTimeSec: 380,
-    peakCpm: 270,
-    avgCpm: 245,
-    avgAccuracy: 97.5,
-    lastActive: '2일 전',
-  },
-  {
-    studentNum: 31,
-    name: '오지호',
-    totalChars: 980,
-    completedSessions: 4,
-    totalPracticeTimeSec: 310,
-    peakCpm: 330,
-    avgCpm: 290,
-    avgAccuracy: 95.8,
-    lastActive: '2일 전',
-  },
-  {
-    studentNum: 34,
-    name: '배채원',
-    totalChars: 750,
-    completedSessions: 3,
-    totalPracticeTimeSec: 240,
-    peakCpm: 260,
-    avgCpm: 230,
-    avgAccuracy: 96.2,
-    lastActive: '3일 전',
-  },
-];
-
-// Helper to get student rankings for the requested class
 export function getClassLeaderboard(
   profile: StudentProfile,
   userHistory: TypingSessionResult[],
@@ -733,7 +504,6 @@ export function getClassLeaderboard(
   const activeClassNum = selectedClassNum ?? profile.classNum;
   const accounts = getStoredStudentAccounts();
 
-  // Filter registered accounts in this school & class
   const classAccounts = accounts.filter(
     (a) =>
       a.schoolYear === profile.schoolYear &&
@@ -744,12 +514,10 @@ export function getClassLeaderboard(
 
   const hasUserSession = Boolean(profile.name && profile.name.trim()) || userHistory.length > 0;
 
-  // If no registered students in this class and no current user activity, return empty list
   if (classAccounts.length === 0 && !hasUserSession) {
     return [];
   }
 
-  // 1. Calculate current user stats from history
   const totalChars = userHistory.reduce((sum, h) => sum + h.totalChars, 0);
   const totalStrokes = userHistory.reduce((sum, h) => sum + h.totalStrokes, 0);
   const completedSessions = userHistory.length;
@@ -773,13 +541,12 @@ export function getClassLeaderboard(
 
   const records: StudentRankRecord[] = [];
 
-  // Add current active user
   if (hasUserSession) {
-    const currentUserRecord: StudentRankRecord = {
+    records.push({
       id: profile.accountId || `user-${profile.studentNum}`,
       profile: {
         ...profile,
-        classNum: activeClassNum,
+        classNum: activeClassNum > 0 ? activeClassNum : profile.classNum,
       },
       isCurrentUser: true,
       totalChars,
@@ -798,11 +565,9 @@ export function getClassLeaderboard(
         avgAccuracy,
       }),
       lastActive: userHistory.length > 0 ? '방금 전' : '활동 대기',
-    };
-    records.push(currentUserRecord);
+    });
   }
 
-  // 2. Add other registered accounts in this class
   for (const acc of classAccounts) {
     if (profile.accountId && acc.id === profile.accountId) continue;
     if (hasUserSession && acc.studentNum === profile.studentNum) continue;
@@ -863,69 +628,6 @@ export function getClassLeaderboard(
   return records;
 }
 
-// Generate demo peers for previewing populated leaderboard
-export function getSampleClassLeaderboard(
-  profile: StudentProfile,
-  userHistory: TypingSessionResult[],
-  selectedClassNum?: number,
-  existingRecords?: StudentRankRecord[]
-): StudentRankRecord[] {
-  const activeClassNum = selectedClassNum ?? profile.classNum;
-  const realRecords = existingRecords ?? getClassLeaderboard(profile, userHistory, activeClassNum);
-  const classSeedModifier = (activeClassNum * 13) % 10;
-  const peerRecords: StudentRankRecord[] = BASE_CLASSMATES.filter(
-    (c) => c.studentNum !== profile.studentNum
-  ).map((seed) => {
-    const chars = Math.max(200, seed.totalChars + classSeedModifier * 45);
-    const sessions = Math.max(1, seed.completedSessions + (activeClassNum % 3) - 1);
-    const practiceTime = Math.round(seed.totalPracticeTimeSec * (1 + (classSeedModifier - 5) * 0.02));
-    const peak = seed.peakCpm + (classSeedModifier % 5) * 6;
-    const avg = seed.avgCpm + (classSeedModifier % 4) * 5;
-    const acc = parseFloat(Math.min(99.8, Math.max(92.0, seed.avgAccuracy + (classSeedModifier - 4) * 0.1)).toFixed(1));
-
-    const effort = calculateCumulativeEffortScore({
-      totalChars: chars,
-      completedSessions: sessions,
-      totalPracticeTimeSec: practiceTime,
-      avgAccuracy: acc,
-      avgCpm: avg,
-      peakCpm: peak,
-    });
-
-    return {
-      id: `peer-${activeClassNum}-${seed.studentNum}`,
-      profile: {
-        schoolYear: profile.schoolYear || '2026학년도',
-        schoolName: profile.schoolName || '가온중학교',
-        grade: profile.grade || 2,
-        classNum: activeClassNum,
-        studentNum: seed.studentNum,
-        name: seed.name,
-      },
-      isCurrentUser: false,
-      totalChars: chars,
-      totalStrokes: chars * 2.4,
-      completedSessions: sessions,
-      totalPracticeTimeSec: practiceTime,
-      peakCpm: peak,
-      avgCpm: avg,
-      avgAccuracy: acc,
-      effortScore: effort,
-      titleBadge: getTitleBadge({
-        effortScore: effort,
-        totalChars: chars,
-        completedSessions: sessions,
-        peakCpm: peak,
-        avgAccuracy: acc,
-      }),
-      lastActive: seed.lastActive,
-    };
-  });
-
-  return [...realRecords, ...peerRecords];
-}
-
-// Sort leaderboard by selected mode
 export function sortLeaderboard(records: StudentRankRecord[], mode: RankSortMode): StudentRankRecord[] {
   const sorted = [...records];
   switch (mode) {
@@ -946,35 +648,17 @@ export function sortLeaderboard(records: StudentRankRecord[], mode: RankSortMode
   }
 }
 
-// Default initial book report sample
-export const INITIAL_SAMPLE_REPORTS: BookReport[] = [
-  {
-    id: 'report-sample-1',
-    createdAt: Date.now() - 1000 * 60 * 60 * 24, // 1 day ago
-    excerptId: 'yoon-seosi',
-    bookTitle: '하늘과 바람과 별과 시',
-    author: '윤동주',
-    excerptTitle: '서시 (序詩)',
-    studentProfile: DEFAULT_STUDENT_PROFILE,
-    cpm: 325,
-    accuracy: 98.4,
-    durationSeconds: 165,
-    title: '별을 노래하는 마음과 나 자신을 돌아보는 성찰',
-    rating: 5,
-    memorableQuote: '죽는 날까지 하늘을 우러러 한 점 부끄럼이 없기를, 잎새에 이는 바람에도 나는 괴로워했다.',
-    quoteReason: '단순한 바람에도 부끄러움을 느끼며 스스로를 끊임없이 되돌아보고 정직하게 살고자 했던 시인의 순결한 고뇌가 마음에 깊이 와닿았습니다.',
-    content: '윤동주 시인의 《서시》를 한 글자씩 키보드로 옮겨 적으며, 일제강점기라는 어두운 시대 속에서도 결코 꺾이지 않았던 청년 시인의 고결한 양심과 의지를 온몸으로 느낄 수 있었습니다. 말 한마디, 글 한 줄조차 자유롭지 못했던 시절에 시인은 밤하늘의 별을 바라보며 자신에게 주어진 길을 묵묵히 걸어가겠다고 다짐했습니다. 편안한 환경에서 공부하는 저 자신이 작은 유혹이나 게으름에 부끄러운 행동을 하지는 않았는지 깊이 반성하게 되었고, 시인의 간절한 언어가 오늘날 저에게도 커다란 울림을 주었습니다.',
-    personalTakeaway: '앞으로 학업이나 생활 속에서 양심에 부끄러움이 없도록 매 순간 정직하고 성실하게 행동하고, 나만의 ‘별’을 향해 꿋꿋이 걸어가겠습니다.',
-  },
-];
-
 export function getStoredBookReports(): BookReport[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.REPORTS);
-    if (!raw) {
-      return [];
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const cleaned = parsed.filter((item: { id?: string }) => item?.id && !isDemoRecordId(item.id));
+    if (cleaned.length !== parsed.length) {
+      localStorage.setItem(STORAGE_KEYS.REPORTS, JSON.stringify(cleaned));
     }
-    return JSON.parse(raw);
+    return cleaned;
   } catch (err) {
     console.error('Failed to parse book reports from localStorage:', err);
     return [];

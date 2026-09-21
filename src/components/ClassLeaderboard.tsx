@@ -9,7 +9,6 @@ import {
   Users,
   Flame,
   ArrowUpRight,
-  TrendingUp,
   SlidersHorizontal,
   ChevronRight,
   CheckCircle2,
@@ -17,10 +16,9 @@ import {
   School,
   GraduationCap,
   LogIn,
-  Eye,
 } from 'lucide-react';
 import { StudentProfile, StudentRankRecord, RankSortMode, TypingSessionResult, StudentAccount } from '../types';
-import { getClassLeaderboard, getSampleClassLeaderboard, sortLeaderboard } from '../utils/storage';
+import { getClassLeaderboard, sortLeaderboard } from '../utils/storage';
 import { apiGetLeaderboard } from '../utils/dbClient';
 
 interface ClassLeaderboardProps {
@@ -42,7 +40,6 @@ export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
 }) => {
   const [selectedClassNum, setSelectedClassNum] = useState<number>(currentProfile.classNum);
   const [sortMode, setSortMode] = useState<RankSortMode>('effort');
-  const [showSamplePeers, setShowSamplePeers] = useState<boolean>(false);
   const [dbRecords, setDbRecords] = useState<StudentRankRecord[] | null>(null);
   const [classNums, setClassNums] = useState<number[]>([currentProfile.classNum]);
 
@@ -86,12 +83,8 @@ export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
 
   // Compute leaderboard records for the active class
   const rawRecords = useMemo(() => {
-    const liveRecords = dbRecords ?? getClassLeaderboard(currentProfile, userHistory, selectedClassNum);
-    if (showSamplePeers) {
-      return getSampleClassLeaderboard(currentProfile, userHistory, selectedClassNum, liveRecords);
-    }
-    return liveRecords;
-  }, [currentProfile, userHistory, selectedClassNum, showSamplePeers, dbRecords]);
+    return dbRecords ?? getClassLeaderboard(currentProfile, userHistory, selectedClassNum);
+  }, [currentProfile, userHistory, selectedClassNum, dbRecords]);
 
   // Sort according to active mode
   const sortedRecords = useMemo(() => {
@@ -151,7 +144,7 @@ export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
               </span>
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-stone-800 text-stone-300 border border-stone-700 text-xs font-medium">
                 <School className="w-3.5 h-3.5 text-stone-400" />
-                {currentProfile.schoolName}
+                {currentProfile.schoolName || '학교 미등록'}
               </span>
               <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-amber-400/10 text-amber-200 border border-amber-400/20 text-xs font-medium">
                 {currentProfile.grade}학년 {selectedClassNum > 0 ? `${selectedClassNum}반` : '전체'}
@@ -175,7 +168,7 @@ export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
             </div>
 
             <h1 className="text-2xl sm:text-3xl font-bold font-batang tracking-tight text-stone-100 flex items-center gap-3">
-              <span>{currentProfile.schoolName} {currentProfile.grade}학년 {selectedClassNum > 0 ? `${selectedClassNum}반` : '전체'} 순위표</span>
+              <span>{currentProfile.schoolName || '학교 미등록'} {currentProfile.grade}학년 {selectedClassNum > 0 ? `${selectedClassNum}반` : '전체'} 순위표</span>
               <Trophy className="w-6 h-6 text-amber-400 shrink-0" />
             </h1>
             <p className="mt-1.5 text-xs sm:text-sm text-stone-400">
@@ -393,18 +386,6 @@ export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
         </div>
 
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => setShowSamplePeers((prev) => !prev)}
-            className={`text-xs px-2.5 py-1.5 rounded-lg border flex items-center gap-1.5 transition-all ${
-              showSamplePeers
-                ? 'bg-amber-500/15 border-amber-400/40 text-amber-800 font-medium'
-                : 'bg-stone-50 border-stone-200 text-stone-600 hover:text-stone-900'
-            }`}
-            title="기록이 없을 때 화면 구성을 미리 살펴볼 수 있는 가상 급우 데이터입니다."
-          >
-            <Eye className="w-3.5 h-3.5" />
-            <span>{showSamplePeers ? '실제 데이터만 보기' : '예시 급우 데이터로 미리보기'}</span>
-          </button>
           <div className="text-xs text-stone-500 font-mono">
             총 {sortedRecords.length}명의 학생 집계
           </div>
@@ -440,18 +421,12 @@ export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
               <ArrowUpRight className="w-4 h-4" />
               <span>타자 연습 시작하기</span>
             </button>
-            <button
-              onClick={() => setShowSamplePeers(true)}
-              className="px-3.5 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-medium transition-all flex items-center gap-1"
-            >
-              <Eye className="w-3.5 h-3.5" />
-              <span>예시 급우 데이터로 살펴보기</span>
-            </button>
           </div>
         </div>
       )}
 
       {/* Top 3 Podium (Honor Roll) */}
+      {sortedRecords.length > 0 && (
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
         {/* 2nd Place */}
         {topThree[1] && (
@@ -614,8 +589,10 @@ export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
           </div>
         )}
       </div>
+      )}
 
       {/* Full Leaderboard Table */}
+      {sortedRecords.length > 0 && (
       <div className="bg-white border border-stone-200/90 rounded-3xl shadow-sm overflow-hidden mb-28">
         <div className="px-6 py-4 border-b border-stone-100 flex items-center justify-between bg-stone-50/50">
           <div className="flex items-center gap-2">
@@ -648,7 +625,7 @@ export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
                         아직 집계된 학급 필사 기록이 없습니다
                       </p>
                       <p className="text-xs text-stone-500">
-                        학생 로그인 후 필사를 완료하거나 [예시 급우 데이터로 미리보기]를 켜서 순위표 예시를 확인하실 수 있습니다.
+                        학생 로그인 후 필사를 완료하면 순위표에 실제 기록이 나타납니다.
                       </p>
                     </div>
                   </td>
@@ -768,6 +745,7 @@ export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
           </table>
         </div>
       </div>
+      )}
 
       {/* Floating Bottom Bar: Quick summary of current user's standing */}
       {currentUserRecord && (

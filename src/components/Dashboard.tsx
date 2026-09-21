@@ -22,7 +22,6 @@ import {
   BookOpen,
   Award,
   Download,
-  RotateCcw,
   Trash2,
   TrendingUp,
   AlertTriangle,
@@ -31,12 +30,10 @@ import {
   FileText,
 } from 'lucide-react';
 import { TypingSessionResult } from '../types';
-import { INITIAL_SAMPLE_RECORDS } from '../utils/storage';
 
 interface DashboardProps {
   history: TypingSessionResult[];
   onClearHistory: () => void;
-  onResetSampleData: () => void;
   onDeleteRecord: (id: string) => void;
   onStartTyping: () => void;
   onWriteReport?: (record: TypingSessionResult) => void;
@@ -45,7 +42,6 @@ interface DashboardProps {
 export const Dashboard: React.FC<DashboardProps> = ({
   history,
   onClearHistory,
-  onResetSampleData,
   onDeleteRecord,
   onStartTyping,
   onWriteReport,
@@ -238,15 +234,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </button>
 
           <button
-            onClick={onResetSampleData}
-            className="px-3 py-2 rounded-xl bg-white hover:bg-stone-50 border border-stone-200 text-stone-700 text-xs sm:text-sm font-medium flex items-center gap-1.5 transition-colors"
-            title="기준 샘플 통계 데이터 다시 채우기"
-          >
-            <RotateCcw className="w-4 h-4 text-stone-500" />
-            <span>예시 데이터 채우기</span>
-          </button>
-
-          <button
             onClick={onClearHistory}
             disabled={history.length === 0}
             className="px-3 py-2 rounded-xl bg-white hover:bg-rose-50 border border-stone-200 text-rose-600 text-xs sm:text-sm font-medium flex items-center gap-1.5 transition-colors disabled:opacity-40"
@@ -349,12 +336,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
               className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-sm"
             >
               타자 필사 시작하기
-            </button>
-            <button
-              onClick={onResetSampleData}
-              className="px-4 py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 font-semibold text-sm"
-            >
-              예시 통계 차트 보기
             </button>
           </div>
         </div>

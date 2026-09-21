@@ -22,22 +22,29 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
   onSaveProfile,
 }) => {
   const [schoolYear, setSchoolYear] = useState(currentProfile.schoolYear || '2026학년도');
-  const [schoolName, setSchoolName] = useState(currentProfile.schoolName || '가온중학교');
-  const [grade, setGrade] = useState<number>(currentProfile.grade || 2);
-  const [classNum, setClassNum] = useState<number>(currentProfile.classNum || 3);
-  const [studentNum, setStudentNum] = useState<number>(currentProfile.studentNum || 15);
-  const [name, setName] = useState(currentProfile.name || '김지민');
+  const [schoolName, setSchoolName] = useState(currentProfile.schoolName || '');
+  const [grade, setGrade] = useState<number>(currentProfile.grade || 1);
+  const [classNum, setClassNum] = useState<number>(currentProfile.classNum || 1);
+  const [studentNum, setStudentNum] = useState<number>(currentProfile.studentNum || 1);
+  const [name, setName] = useState(currentProfile.name || '');
   const [error, setError] = useState<string | null>(null);
   const [registeredSchools, setRegisteredSchools] = useState<string[]>([]);
 
   useEffect(() => {
     if (!isOpen) return;
+    setSchoolYear(currentProfile.schoolYear || '2026학년도');
+    setSchoolName(currentProfile.schoolName || '');
+    setGrade(currentProfile.grade || 1);
+    setClassNum(currentProfile.classNum || 1);
+    setStudentNum(currentProfile.studentNum || 1);
+    setName(currentProfile.name || '');
+    setError(null);
     void apiListSchools().then((schools) => {
       const localNames = getRecentStudentAccounts().map((acc) => acc.schoolName).filter(Boolean);
       if (currentProfile.schoolName) localNames.push(currentProfile.schoolName);
       setRegisteredSchools(Array.from(new Set([...schools, ...localNames])));
     });
-  }, [isOpen, currentProfile.schoolName]);
+  }, [isOpen, currentProfile]);
 
   if (!isOpen) return null;
 
