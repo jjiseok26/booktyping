@@ -163,8 +163,8 @@ export async function apiAdminLogin(username: string, password: string) {
   try {
     const data = await request<{
       token?: string;
-      role?: 'admin' | 'teacher';
-      admin?: { id: string; username: string; role?: 'admin' | 'teacher'; schoolName?: string };
+      role?: 'admin' | 'teacher' | 'school_admin';
+      admin?: { id: string; username: string; role?: 'admin' | 'teacher' | 'school_admin'; schoolName?: string; grade?: number; classNum?: number };
     }>('/api/admin-login', {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -196,8 +196,8 @@ export async function apiTeacherLogin(username: string, password: string) {
   try {
     const data = await request<{
       token?: string;
-      role?: 'admin' | 'teacher';
-      admin?: { id: string; username: string; role?: 'admin' | 'teacher'; schoolName?: string };
+      role?: 'admin' | 'teacher' | 'school_admin';
+      admin?: { id: string; username: string; role?: 'admin' | 'teacher' | 'school_admin'; schoolName?: string; grade?: number; classNum?: number };
     }>('/api/teacher-login', {
       method: 'POST',
       body: JSON.stringify({ username, password }),
@@ -223,11 +223,11 @@ export async function apiAdminLogout(): Promise<void> {
 export async function apiAdminMe() {
   try {
     return await adminRequest<{
-      admin: { id: string; username: string; role?: 'admin' | 'teacher'; schoolName?: string };
+      admin: { id: string; username: string; role?: 'admin' | 'teacher' | 'school_admin'; schoolName?: string; grade?: number; classNum?: number };
     }>('/api/admin-me');
   } catch {
     return adminRequest<{
-      admin: { id: string; username: string; role?: 'admin' | 'teacher'; schoolName?: string };
+      admin: { id: string; username: string; role?: 'admin' | 'teacher' | 'school_admin'; schoolName?: string; grade?: number; classNum?: number };
     }>('/api/admin/me');
   }
 }
@@ -281,23 +281,99 @@ export async function apiAdminDeleteReport(id: string, studentId: string) {
 
 export async function apiAdminTeachers() {
   const data = await adminRequest<{
-    teachers: Array<{ id: string; schoolName: string; username: string; createdAt: number; lastLoginAt: number }>;
+    teachers: Array<{
+      id: string;
+      schoolName: string;
+      username: string;
+      grade: number;
+      classNum: number;
+      role: 'teacher' | 'school_admin';
+      createdAt: number;
+      lastLoginAt: number;
+    }>;
   }>('/api/admin-teachers');
   return data.teachers || [];
 }
 
-export async function apiAdminCreateTeacher(payload: { schoolName: string; username: string; password: string }) {
+export async function apiAdminCreateTeacher(payload: {
+  schoolName: string;
+  username: string;
+  password: string;
+  grade?: number;
+  classNum?: number;
+  schoolAdmin?: boolean;
+}) {
   return adminRequest<{
-    teachers?: Array<{ id: string; schoolName: string; username: string; createdAt: number; lastLoginAt: number }>;
+    teachers?: Array<{
+      id: string;
+      schoolName: string;
+      username: string;
+      grade: number;
+      classNum: number;
+      role: 'teacher' | 'school_admin';
+      createdAt: number;
+      lastLoginAt: number;
+    }>;
   }>('/api/admin-teachers', {
     method: 'POST',
     body: JSON.stringify(payload),
   });
 }
 
+export async function apiAdminCreateTeachers(
+  teachers: Array<{
+    schoolName: string;
+    username: string;
+    password: string;
+    grade?: number;
+    classNum?: number;
+    schoolAdmin?: boolean;
+  }>
+) {
+  return adminRequest<{
+    created?: number;
+    failed?: string[];
+    teachers?: Array<{
+      id: string;
+      schoolName: string;
+      username: string;
+      grade: number;
+      classNum: number;
+      role: 'teacher' | 'school_admin';
+      createdAt: number;
+      lastLoginAt: number;
+    }>;
+  }>('/api/admin-teachers', {
+    method: 'POST',
+    body: JSON.stringify({ teachers }),
+  });
+}
+
+export async function apiAdminUpdateStudent(
+  id: string,
+  payload: { grade?: number; classNum?: number; studentNum?: number; name?: string }
+) {
+  const data = await adminRequest<{
+    students: Array<StudentAccount & { sessionCount: number; reportCount: number; totalChars: number }>;
+  }>(`/api/admin-students?id=${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+  return data.students || [];
+}
+
 export async function apiAdminDeleteTeacher(id: string) {
   const data = await adminRequest<{
-    teachers: Array<{ id: string; schoolName: string; username: string; createdAt: number; lastLoginAt: number }>;
+    teachers: Array<{
+      id: string;
+      schoolName: string;
+      username: string;
+      grade: number;
+      classNum: number;
+      role: 'teacher' | 'school_admin';
+      createdAt: number;
+      lastLoginAt: number;
+    }>;
   }>(`/api/admin-teachers?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
   return data.teachers || [];
 }

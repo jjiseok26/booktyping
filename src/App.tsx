@@ -227,7 +227,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#fbfaf8] text-stone-900 font-sans-kr selection:bg-amber-100 selection:text-amber-950">
+    <div className="min-h-screen flex flex-col md:pl-56 bg-[#fbfaf8] text-stone-900 font-sans-kr selection:bg-amber-100 selection:text-amber-950">
       {currentView === 'admin' ? (
         <AdminView
           loginMode={staffLoginMode}

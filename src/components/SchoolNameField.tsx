@@ -7,6 +7,7 @@ interface SchoolNameFieldProps {
   schools: string[];
   placeholder?: string;
   inputClassName?: string;
+  variant?: 'dark' | 'light';
 }
 
 export const SchoolNameField: React.FC<SchoolNameFieldProps> = ({
@@ -15,6 +16,7 @@ export const SchoolNameField: React.FC<SchoolNameFieldProps> = ({
   schools,
   placeholder = '예: 가온중학교',
   inputClassName,
+  variant = 'dark',
 }) => {
   const [open, setOpen] = useState(false);
   const matches = useMemo(() => {
@@ -45,8 +47,18 @@ export const SchoolNameField: React.FC<SchoolNameFieldProps> = ({
         className={inputClassName}
       />
       {open && matches.length > 0 && (
-        <ul className="absolute z-50 mt-1 w-full max-h-44 overflow-y-auto rounded-xl border border-stone-700 bg-stone-950 shadow-xl text-xs">
-          <li className="px-3 py-1.5 text-[10px] text-stone-500 border-b border-stone-800">
+        <ul
+          className={`absolute z-50 mt-1 w-full max-h-44 overflow-y-auto rounded-xl border shadow-xl text-xs ${
+            variant === 'light'
+              ? 'border-stone-200 bg-white'
+              : 'border-stone-700 bg-stone-950'
+          }`}
+        >
+          <li
+            className={`px-3 py-1.5 text-[10px] border-b ${
+              variant === 'light' ? 'text-stone-500 border-stone-100' : 'text-stone-500 border-stone-800'
+            }`}
+          >
             등록된 학교
           </li>
           {matches.map((name) => (
@@ -58,8 +70,10 @@ export const SchoolNameField: React.FC<SchoolNameFieldProps> = ({
                   onChange(name);
                   setOpen(false);
                 }}
-                className={`w-full text-left px-3 py-2 hover:bg-amber-500/15 hover:text-amber-200 ${
-                  name === value.trim() ? 'text-amber-300' : 'text-stone-200'
+                className={`w-full text-left px-3 py-2 ${
+                  variant === 'light'
+                    ? `hover:bg-amber-50 hover:text-amber-800 ${name === value.trim() ? 'text-amber-700' : 'text-stone-700'}`
+                    : `hover:bg-amber-500/15 hover:text-amber-200 ${name === value.trim() ? 'text-amber-300' : 'text-stone-200'}`
                 }`}
               >
                 {name}

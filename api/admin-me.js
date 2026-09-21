@@ -21,10 +21,12 @@ export default async function handler(req, res) {
   res.status(200).json({
     success: true,
     admin: {
-      id: staff.role === 'teacher' ? `teacher:${staff.username}` : 'admin-default',
+      id: staff.role === 'admin' ? 'admin-default' : `teacher:${staff.username}`,
       username: staff.username,
       role: staff.role,
       schoolName: staff.schoolName,
+      grade: Number(staff.grade || 0),
+      classNum: Number(staff.classNum || 0),
     },
   });
 }

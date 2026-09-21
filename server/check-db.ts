@@ -14,9 +14,14 @@ import {
   getAdminByToken,
   getAdminOverview,
   createTeacher,
+  createTeachers,
   loginTeacher,
   listAllStudents,
+  listSchoolNames,
+  updateStudentAccount,
+  deleteStudentAccount,
 } from './db';
+import { rowsToTeachers } from '../src/utils/teacherWorkbook';
 
 const dbFile = path.join(process.cwd(), 'data', 'booktyping.check.sqlite');
 
@@ -144,21 +149,133 @@ async function main() {
   const teacherDenied = await loginTeacher(DEFAULT_ADMIN_USERNAME, DEFAULT_ADMIN_PASSWORD);
   if (teacherDenied.success) throw new Error('admin credentials should not work on teacher login');
 
-  const teacherCreated = await createTeacher({
+  const teacherMissingClass = await createTeacher({
     schoolName: '금구중',
     username: 'geumgu-teacher',
     password: 'class1234',
   });
-  if (!teacherCreated.success || teacherCreated.teacher?.schoolName !== '금구중학교') {
+  if (teacherMissingClass.success) throw new Error('homeroom teacher without grade/class should fail');
+
+  const teacherCreated = await createTeacher({
+    schoolName: '금구중',
+    username: 'geumgu-teacher',
+    password: 'class1234',
+    grade: 1,
+    classNum: 1,
+  });
+  if (!teacherCreated.success || teacherCreated.teacher?.schoolName !== '금구중학교' || teacherCreated.teacher.grade !== 1) {
     throw new Error(teacherCreated.message);
   }
   const teacherOk = await loginTeacher('geumgu-teacher', 'class1234');
-  if (!teacherOk.success || teacherOk.role !== 'teacher' || teacherOk.admin?.schoolName !== '금구중학교') {
+  if (
+    !teacherOk.success ||
+    teacherOk.role !== 'teacher' ||
+    teacherOk.admin?.schoolName !== '금구중학교' ||
+    teacherOk.admin.grade !== 1 ||
+    teacherOk.admin.classNum !== 1
+  ) {
     throw new Error(teacherOk.message);
   }
-  const teacherRows = await listAllStudents(teacherOk.admin?.schoolName);
-  if (teacherRows.some((row) => row.schoolName !== '금구중학교')) {
-    throw new Error('teacher school scope leaked other schools');
+  const teacherRows = await listAllStudents({
+    schoolName: teacherOk.admin?.schoolName,
+    grade: teacherOk.admin?.grade,
+    classNum: teacherOk.admin?.classNum,
+  });
+  if (teacherRows.some((row) => row.schoolName !== '금구중학교' || row.grade !== 1 || row.classNum !== 1)) {
+    throw new Error('teacher class scope leaked other students');
+  }
+
+  const schoolAdminCreated = await createTeacher({
+    schoolName: '금구중',
+    username: 'geumgu-admin',
+    password: 'admin1234',
+    schoolAdmin: true,
+  });
+  if (!schoolAdminCreated.success || schoolAdminCreated.teacher?.role !== 'school_admin') {
+    throw new Error(schoolAdminCreated.message);
+  }
+  const schoolAdminOk = await loginTeacher('geumgu-admin', 'admin1234');
+  if (!schoolAdminOk.success || schoolAdminOk.role !== 'school_admin' || schoolAdminOk.admin?.schoolName !== '금구중학교') {
+    throw new Error(schoolAdminOk.message);
+  }
+  const schoolAdminRows = await listAllStudents({ schoolName: schoolAdminOk.admin?.schoolName });
+  if (schoolAdminRows.some((row) => row.schoolName !== '금구중학교')) {
+    throw new Error('school admin scope leaked other schools');
+  }
+
+  const otherClass = await registerStudent({
+    schoolYear: '2026학년도',
+    schoolName: '금구중',
+    grade: 1,
+    classNum: 2,
+    studentNum: 1,
+    name: '최하나',
+  });
+  if (!otherClass.success || !otherClass.account) throw new Error(otherClass.message);
+  const teacherStillScoped = await listAllStudents({
+    schoolName: '금구중학교',
+    grade: 1,
+    classNum: 1,
+  });
+  if (teacherStillScoped.some((row) => row.classNum !== 1)) {
+    throw new Error('homeroom teacher saw another class');
+  }
+
+  const renamed = await updateStudentAccount(
+    expanded.account?.id || '',
+    { name: '박민수수정', classNum: 3, studentNum: 8 },
+    '금구중학교'
+  );
+  if (!renamed.success || renamed.account?.name !== '박민수수정' || renamed.account.classNum !== 3) {
+    throw new Error(renamed.message);
+  }
+  const renamedLogin = await loginStudent({
+    schoolYear: '2026학년도',
+    schoolName: '금구중',
+    grade: 1,
+    classNum: 3,
+    studentNum: 8,
+    name: '박민수수정',
+  });
+  if (!renamedLogin.success) throw new Error(renamedLogin.message);
+  const blockedSchool = await updateStudentAccount(renamed.account?.id || '', { name: '차단' }, '다른학교');
+  if (blockedSchool.success) throw new Error('school admin of another school should not edit student');
+
+  const batch = await createTeachers([
+    {
+      schoolName: '가온중',
+      username: 'gaon1',
+      password: 'pass1234',
+      grade: 2,
+      classNum: 3,
+    },
+    {
+      schoolName: '가온중',
+      username: 'gaon-admin',
+      password: 'pass1234',
+      schoolAdmin: true,
+    },
+  ]);
+  if (!batch.success || batch.created !== 2) throw new Error(batch.message);
+  const names = await listSchoolNames();
+  if (!names.includes('금구중학교') || !names.includes('가온중학교')) {
+    throw new Error(`school names missing: ${names.join(',')}`);
+  }
+  await deleteStudentAccount(otherClass.account.id);
+
+  const parsedTeachers = rowsToTeachers([
+    ['학교명', '아이디', '비밀번호', '학년', '반', '구분'],
+    ['금구중', 'excel1', 'pass1234', '2', '4', '담임교사'],
+    ['금구중', 'excel-admin', 'pass1234', '', '', '학교최고관리자'],
+  ]);
+  if (
+    parsedTeachers.length !== 2 ||
+    parsedTeachers[0].schoolName !== '금구중학교' ||
+    parsedTeachers[0].grade !== 2 ||
+    parsedTeachers[0].classNum !== 4 ||
+    parsedTeachers[1].schoolAdmin !== true
+  ) {
+    throw new Error('excel teacher rows were not parsed');
   }
 
   const overview = await getAdminOverview();

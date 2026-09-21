@@ -2,6 +2,7 @@ import express from 'express';
 import {
   clearSessions,
   createTeacher,
+  createTeachers,
   deleteReport,
   deleteSession,
   deleteStudentAccount,
@@ -25,10 +26,9 @@ import {
   registerStudent,
   saveReport,
   saveSession,
+  updateStudentAccount,
   type AdminAccount,
 } from './db';
-
-const app = express();
 
 function isParsedObject(body: unknown): body is Record<string, unknown> {
   return Boolean(body && typeof body === 'object' && !Buffer.isBuffer(body) && Object.keys(body).length > 0);
@@ -62,6 +62,8 @@ function parseJsonBody(
 
   express.json({ limit: '1mb' })(req, res, next);
 }
+
+const app = express();
 
 app.use((req, _res, next) => {
   const url = req.url || '';
@@ -112,7 +114,7 @@ async function requireStaff(req: express.Request, res: express.Response) {
     res.status(401).json({ success: false, message: '관리자 로그인이 필요합니다.' });
     return null;
   }
-  if (staff.role === 'teacher' && !staff.schoolName) {
+  if ((staff.role === 'teacher' || staff.role === 'school_admin') && !staff.schoolName) {
     res.status(403).json({ success: false, message: '학교 정보가 없는 선생님 계정입니다.' });
     return null;
   }
@@ -129,8 +131,23 @@ async function requireAdminOnly(req: express.Request, res: express.Response) {
   return staff;
 }
 
-function schoolScope(staff: AdminAccount): string | undefined {
-  return staff.role === 'teacher' ? staff.schoolName : undefined;
+async function requireStudentEditor(req: express.Request, res: express.Response) {
+  const staff = await requireStaff(req, res);
+  if (!staff) return null;
+  if (staff.role !== 'admin' && staff.role !== 'school_admin') {
+    res.status(403).json({ success: false, message: '학교 최고관리자만 학생 정보를 수정할 수 있습니다.' });
+    return null;
+  }
+  return staff;
+}
+
+function staffScope(staff: AdminAccount) {
+  if (staff.role === 'admin') return {};
+  return {
+    schoolName: staff.schoolName,
+    grade: staff.role === 'teacher' ? staff.grade : 0,
+    classNum: staff.role === 'teacher' ? staff.classNum : 0,
+  };
 }
 
 app.get(
@@ -345,7 +362,7 @@ app.get(
   asyncRoute(async (req, res) => {
     const staff = await requireStaff(req, res);
     if (!staff) return;
-    res.json({ success: true, overview: await getAdminOverview(schoolScope(staff)) });
+    res.json({ success: true, overview: await getAdminOverview(staffScope(staff)) });
   })
 );
 
@@ -354,17 +371,48 @@ app.get(
   asyncRoute(async (req, res) => {
     const staff = await requireStaff(req, res);
     if (!staff) return;
-    res.json({ success: true, students: await listAllStudents(schoolScope(staff)) });
+    res.json({ success: true, students: await listAllStudents(staffScope(staff)) });
   })
 );
 
 app.delete(
   '/api/admin/students/:id',
   asyncRoute(async (req, res) => {
-    const staff = await requireAdminOnly(req, res);
+    const staff = await requireStudentEditor(req, res);
     if (!staff) return;
+    const student = await getStudentById(req.params.id);
+    if (!student) {
+      res.status(404).json({ success: false, message: '학생 계정을 찾을 수 없습니다.' });
+      return;
+    }
+    if (staff.role === 'school_admin' && student.schoolName !== staff.schoolName) {
+      res.status(403).json({ success: false, message: '해당 학교 학생만 삭제할 수 있습니다.' });
+      return;
+    }
     await deleteStudentAccount(req.params.id);
-    res.json({ success: true, students: await listAllStudents() });
+    res.json({ success: true, students: await listAllStudents(staffScope(staff)) });
+  })
+);
+
+app.patch(
+  '/api/admin/students/:id',
+  asyncRoute(async (req, res) => {
+    const staff = await requireStudentEditor(req, res);
+    if (!staff) return;
+    const result = await updateStudentAccount(
+      req.params.id,
+      {
+        grade: req.body?.grade,
+        classNum: req.body?.classNum,
+        studentNum: req.body?.studentNum,
+        name: req.body?.name,
+      },
+      staff.role === 'school_admin' ? staff.schoolName : undefined
+    );
+    res.status(result.success ? 200 : 400).json({
+      ...result,
+      students: result.success ? await listAllStudents(staffScope(staff)) : undefined,
+    });
   })
 );
 
@@ -373,7 +421,7 @@ app.get(
   asyncRoute(async (req, res) => {
     const staff = await requireStaff(req, res);
     if (!staff) return;
-    res.json({ success: true, sessions: await listAllSessions(200, schoolScope(staff)) });
+    res.json({ success: true, sessions: await listAllSessions(200, staffScope(staff)) });
   })
 );
 
@@ -397,7 +445,7 @@ app.get(
   asyncRoute(async (req, res) => {
     const staff = await requireStaff(req, res);
     if (!staff) return;
-    res.json({ success: true, reports: await listAllReports(200, schoolScope(staff)) });
+    res.json({ success: true, reports: await listAllReports(200, staffScope(staff)) });
   })
 );
 
@@ -430,10 +478,28 @@ app.post(
   asyncRoute(async (req, res) => {
     const staff = await requireAdminOnly(req, res);
     if (!staff) return;
+    const rows = Array.isArray(req.body?.teachers) ? req.body.teachers : null;
+    if (rows) {
+      const result = await createTeachers(
+        rows.map((row: Record<string, unknown>) => ({
+          schoolName: String(row.schoolName || ''),
+          username: String(row.username || ''),
+          password: String(row.password || ''),
+          grade: Number(row.grade || 0),
+          classNum: Number(row.classNum || 0),
+          schoolAdmin: Boolean(row.schoolAdmin),
+        }))
+      );
+      res.status(result.success ? 200 : 400).json(result);
+      return;
+    }
     const result = await createTeacher({
       schoolName: String(req.body?.schoolName || ''),
       username: String(req.body?.username || ''),
       password: String(req.body?.password || ''),
+      grade: Number(req.body?.grade || 0),
+      classNum: Number(req.body?.classNum || 0),
+      schoolAdmin: Boolean(req.body?.schoolAdmin),
     });
     res.status(result.success ? 200 : 400).json({
       ...result,

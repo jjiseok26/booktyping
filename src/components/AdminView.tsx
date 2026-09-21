@@ -11,10 +11,13 @@ import {
   Lock,
   LayoutDashboard,
   UserPlus,
+  Pencil,
+  Upload,
 } from 'lucide-react';
 import { BookReport, StudentAccount, TypingSessionResult } from '../types';
 import {
   apiAdminCreateTeacher,
+  apiAdminCreateTeachers,
   apiAdminDeleteReport,
   apiAdminDeleteSession,
   apiAdminDeleteStudent,
@@ -27,20 +30,39 @@ import {
   apiAdminSessions,
   apiAdminStudents,
   apiAdminTeachers,
+  apiAdminUpdateStudent,
+  apiListSchools,
   apiTeacherLogin,
   getAdminToken,
   setAdminToken,
 } from '../utils/dbClient';
 import { expandSchoolName } from '../utils/schoolName';
+import { parseTeacherSpreadsheet, TEACHER_CSV_TEMPLATE } from '../utils/teacherWorkbook';
+import { SchoolNameField } from './SchoolNameField';
 
 type AdminTab = 'overview' | 'students' | 'sessions' | 'reports' | 'teachers';
-type StaffRole = 'admin' | 'teacher';
+type StaffRole = 'admin' | 'teacher' | 'school_admin';
+type LoginMode = 'admin' | 'teacher';
 type AdminStudent = StudentAccount & { sessionCount: number; reportCount: number; totalChars: number };
-type TeacherRow = { id: string; schoolName: string; username: string; createdAt: number; lastLoginAt: number };
+type TeacherRow = {
+  id: string;
+  schoolName: string;
+  username: string;
+  grade: number;
+  classNum: number;
+  role: 'teacher' | 'school_admin';
+  createdAt: number;
+  lastLoginAt: number;
+};
 
 interface AdminViewProps {
   onBack: () => void;
-  loginMode?: StaffRole;
+  loginMode?: LoginMode;
+}
+
+function asStaffRole(role?: string): StaffRole {
+  if (role === 'teacher' || role === 'school_admin') return role;
+  return 'admin';
 }
 
 export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin' }) => {
@@ -59,24 +81,41 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
   const [sessions, setSessions] = useState<TypingSessionResult[]>([]);
   const [reports, setReports] = useState<BookReport[]>([]);
   const [teachers, setTeachers] = useState<TeacherRow[]>([]);
+  const [schools, setSchools] = useState<string[]>([]);
   const [teacherSchool, setTeacherSchool] = useState('');
   const [teacherUsername, setTeacherUsername] = useState('');
   const [teacherPassword, setTeacherPassword] = useState('');
+  const [teacherGrade, setTeacherGrade] = useState('1');
+  const [teacherClassNum, setTeacherClassNum] = useState('1');
+  const [teacherIsSchoolAdmin, setTeacherIsSchoolAdmin] = useState(false);
   const [teacherMessage, setTeacherMessage] = useState<string | null>(null);
+  const [uploadingTeachers, setUploadingTeachers] = useState(false);
+  const [editingStudent, setEditingStudent] = useState<AdminStudent | null>(null);
+  const [editGrade, setEditGrade] = useState('1');
+  const [editClassNum, setEditClassNum] = useState('1');
+  const [editStudentNum, setEditStudentNum] = useState('1');
+  const [editName, setEditName] = useState('');
+  const [editMessage, setEditMessage] = useState<string | null>(null);
+  const [savingStudent, setSavingStudent] = useState(false);
 
   const isAdmin = staffRole === 'admin';
+  const canEditStudents = staffRole === 'admin' || staffRole === 'school_admin';
+  const consoleTitle =
+    staffRole === 'admin' ? '관리자 콘솔' : staffRole === 'school_admin' ? '학교 최고관리자 콘솔' : '담임교사 콘솔';
 
   const loadDashboard = async (role: StaffRole = staffRole) => {
-    const [nextOverview, nextStudents, nextSessions, nextReports] = await Promise.all([
+    const [nextOverview, nextStudents, nextSessions, nextReports, nextSchools] = await Promise.all([
       apiAdminOverview(),
       apiAdminStudents(),
       apiAdminSessions(),
       apiAdminReports(),
+      apiListSchools(),
     ]);
     setOverview(nextOverview);
     setStudents(nextStudents);
     setSessions(nextSessions);
     setReports(nextReports);
+    setSchools(nextSchools);
     if (role === 'admin') {
       setTeachers(await apiAdminTeachers());
     } else {
@@ -91,10 +130,11 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
     }
     void apiAdminMe()
       .then(async (data) => {
+        const nextRole = asStaffRole(data.admin.role);
         setAdminName(data.admin.username);
-        setStaffRole(data.admin.role === 'teacher' ? 'teacher' : 'admin');
+        setStaffRole(nextRole);
         setStaffSchool(data.admin.schoolName || '');
-        await loadDashboard(data.admin.role === 'teacher' ? 'teacher' : 'admin');
+        await loadDashboard(nextRole);
       })
       .catch(() => {
         setAdminToken(null);
@@ -116,8 +156,8 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
         setError(result.message || '로그인에 실패했습니다.');
         return;
       }
-      const nextRole = result.admin.role === 'teacher' || result.role === 'teacher' ? 'teacher' : 'admin';
-      if (loginMode === 'teacher' && nextRole !== 'teacher') {
+      const nextRole = asStaffRole(result.admin.role || result.role);
+      if (loginMode === 'teacher' && nextRole === 'admin') {
         setAdminToken(null);
         setError('선생님 계정으로 로그인해 주세요.');
         return;
@@ -127,7 +167,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
       setStaffSchool(result.admin.schoolName || '');
       setPassword('');
       try {
-        await loadDashboard(result.admin.role === 'teacher' || result.role === 'teacher' ? 'teacher' : 'admin');
+        await loadDashboard(nextRole);
       } catch (err) {
         setError(err instanceof Error ? err.message : '관리자 데이터를 불러오지 못했습니다.');
       }
@@ -145,6 +185,67 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
     setSessions([]);
     setReports([]);
     setTeachers([]);
+  };
+
+  const openStudentEditor = (student: AdminStudent) => {
+    setEditingStudent(student);
+    setEditGrade(String(student.grade));
+    setEditClassNum(String(student.classNum));
+    setEditStudentNum(String(student.studentNum));
+    setEditName(student.name);
+    setEditMessage(null);
+  };
+
+  const saveStudentEditor = async () => {
+    if (!editingStudent) return;
+    setSavingStudent(true);
+    setEditMessage(null);
+    try {
+      const next = await apiAdminUpdateStudent(editingStudent.id, {
+        grade: Number(editGrade),
+        classNum: Number(editClassNum),
+        studentNum: Number(editStudentNum),
+        name: editName.trim(),
+      });
+      setStudents(next);
+      setEditingStudent(null);
+      await loadDashboard(staffRole);
+    } catch (err) {
+      setEditMessage(err instanceof Error ? err.message : '학생 정보를 수정하지 못했습니다.');
+    } finally {
+      setSavingStudent(false);
+    }
+  };
+
+  const uploadTeacherFile = async (file: File) => {
+    setTeacherMessage(null);
+    setUploadingTeachers(true);
+    try {
+      const drafts = await parseTeacherSpreadsheet(file);
+      if (drafts.length === 0) {
+        setTeacherMessage('엑셀에서 교사 행을 찾지 못했습니다. 양식의 열 이름을 확인해 주세요.');
+        return;
+      }
+      const result = await apiAdminCreateTeachers(drafts);
+      if (result.teachers) setTeachers(result.teachers);
+      const failed = result.failed?.length ? `\n${result.failed.join('\n')}` : '';
+      setTeacherMessage(`${result.message || '교사 계정을 등록했습니다.'}${failed}`);
+      setSchools(await apiListSchools());
+    } catch (err) {
+      setTeacherMessage(err instanceof Error ? err.message : '엑셀 파일을 읽지 못했습니다.');
+    } finally {
+      setUploadingTeachers(false);
+    }
+  };
+
+  const downloadTeacherTemplate = () => {
+    const blob = new Blob([TEACHER_CSV_TEMPLATE], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = '담임교사_등록양식.csv';
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   const scopedStudents = useMemo(
@@ -211,8 +312,8 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
               <h1 className="text-lg font-bold">{loginMode === 'teacher' ? '선생님 로그인' : '관리자 로그인'}</h1>
               <p className="text-xs text-stone-400">
                 {loginMode === 'teacher'
-                  ? '담임교사 아이디로 로그인하면 우리 학교 학생의 필사·독후 활동만 확인할 수 있습니다.'
-                  : '관리자는 학교별 담임 아이디를 만들고 전체 활동을 확인합니다.'}
+                  ? '담임교사·학교 최고관리자 아이디로 로그인하면 우리 학교 학생의 필사·독후 활동만 확인할 수 있습니다.'
+                  : '관리자는 학교별 담임·최고관리자 아이디를 만들고 전체 활동을 확인합니다.'}
               </p>
             </div>
           </div>
@@ -261,9 +362,10 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
               <ShieldCheck className="w-5 h-5" />
             </div>
             <div>
-              <p className="font-bold">{isAdmin ? '관리자 콘솔' : '담임교사 콘솔'}</p>
+              <p className="font-bold">{consoleTitle}</p>
               <p className="text-xs text-stone-400">
                 {adminName} 계정{staffSchool ? ` · ${staffSchool}` : ''}
+                {staffRole === 'teacher' ? ' · 담임' : staffRole === 'school_admin' ? ' · 최고관리자' : ''}
               </p>
             </div>
           </div>
@@ -327,9 +429,11 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
         {tab === 'overview' && (
           <section className="bg-white border border-stone-200 rounded-2xl p-5 text-sm text-stone-600 leading-relaxed">
             학급 학생 계정, 필사 세션, 독후감을 한곳에서 확인합니다.
-            {isAdmin
-              ? ' 담임교사 아이디를 학교별로 만들면 해당 학교 학생 활동만 볼 수 있습니다. 학생을 삭제하면 타자 기록과 독후감도 함께 삭제됩니다.'
-              : ` ${staffSchool} 학생들의 필사·독후 활동을 조회할 수 있습니다.`}
+            {staffRole === 'admin'
+              ? ' 담임교사와 학교 최고관리자 아이디를 만들 수 있습니다. 최고관리자는 해당 학교 학생의 반·번호·성명(로그인 암호)을 수정하거나 삭제할 수 있습니다.'
+              : staffRole === 'school_admin'
+                ? ` ${staffSchool} 학생의 반·번호·성명(로그인 암호)을 수정하거나 삭제할 수 있습니다.`
+                : ` ${staffSchool} 담당 학급 학생들의 필사·독후 활동을 조회할 수 있습니다.`}
           </section>
         )}
 
@@ -344,17 +448,27 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
               String(student.sessionCount),
               String(student.reportCount),
               String(student.totalChars),
-              isAdmin ? (
-                <button
-                  key={student.id}
-                  className="text-rose-600 hover:text-rose-700"
-                  onClick={() => {
-                    if (!window.confirm(`${student.name} 학생 계정과 기록을 삭제할까요?`)) return;
-                    void apiAdminDeleteStudent(student.id).then(setStudents).then(() => loadDashboard('admin'));
-                  }}
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+              canEditStudents ? (
+                <span key={student.id} className="flex items-center justify-end gap-2">
+                  <button
+                    className="text-stone-500 hover:text-amber-700"
+                    onClick={() => openStudentEditor(student)}
+                    title="학생 정보 수정"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                  <button
+                    className="text-rose-600 hover:text-rose-700"
+                    onClick={() => {
+                      if (!window.confirm(`${student.name} 학생 계정과 기록을 삭제할까요?`)) return;
+                      void apiAdminDeleteStudent(student.id)
+                        .then(setStudents)
+                        .then(() => loadDashboard(staffRole));
+                    }}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </span>
               ) : (
                 ''
               ),
@@ -379,7 +493,9 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
                   onClick={() => {
                     const studentId = session.studentProfile?.accountId;
                     if (!studentId || !window.confirm('이 필사 기록을 삭제할까요?')) return;
-                    void apiAdminDeleteSession(session.id, studentId).then(setSessions).then(() => loadDashboard('admin'));
+                    void apiAdminDeleteSession(session.id, studentId)
+                      .then(setSessions)
+                      .then(() => loadDashboard('admin'));
                   }}
                 >
                   <Trash2 className="w-4 h-4" />
@@ -407,7 +523,9 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
                   onClick={() => {
                     const studentId = report.studentProfile?.accountId;
                     if (!studentId || !window.confirm('이 독후감을 삭제할까요?')) return;
-                    void apiAdminDeleteReport(report.id, studentId).then(setReports).then(() => loadDashboard('admin'));
+                    void apiAdminDeleteReport(report.id, studentId)
+                      .then(setReports)
+                      .then(() => loadDashboard('admin'));
                   }}
                 >
                   <Trash2 className="w-4 h-4" />
@@ -421,7 +539,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
         {tab === 'teachers' && isAdmin && (
           <section className="space-y-4">
             <form
-              className="bg-white border border-stone-200 rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-4 gap-3 items-end"
+              className="bg-white border border-stone-200 rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 items-end"
               onSubmit={(e) => {
                 e.preventDefault();
                 setTeacherMessage(null);
@@ -429,29 +547,37 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
                   schoolName: expandSchoolName(teacherSchool),
                   username: teacherUsername.trim(),
                   password: teacherPassword,
+                  grade: Number(teacherGrade),
+                  classNum: Number(teacherClassNum),
+                  schoolAdmin: teacherIsSchoolAdmin,
                 })
-                  .then((result) => {
-                    setTeacherMessage(result.message || '담임교사 계정을 만들었습니다.');
+                  .then(async (result) => {
+                    setTeacherMessage(result.message || '교사 계정을 만들었습니다.');
                     if (result.teachers) setTeachers(result.teachers);
                     if (result.success) {
                       setTeacherSchool('');
                       setTeacherUsername('');
                       setTeacherPassword('');
+                      setTeacherGrade('1');
+                      setTeacherClassNum('1');
+                      setTeacherIsSchoolAdmin(false);
+                      setSchools(await apiListSchools());
                     }
                   })
                   .catch((err) => {
-                    setTeacherMessage(err instanceof Error ? err.message : '담임교사 계정을 만들지 못했습니다.');
+                    setTeacherMessage(err instanceof Error ? err.message : '교사 계정을 만들지 못했습니다.');
                   });
               }}
             >
-              <label className="text-xs text-stone-500">
+              <label className="text-xs text-stone-500 lg:col-span-2">
                 학교명
-                <input
+                <SchoolNameField
                   value={teacherSchool}
-                  onChange={(e) => setTeacherSchool(e.target.value)}
-                  onBlur={() => setTeacherSchool(expandSchoolName(teacherSchool))}
+                  onChange={setTeacherSchool}
+                  schools={schools}
+                  variant="light"
                   placeholder="예: 금구중"
-                  className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm"
+                  inputClassName="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm bg-white"
                 />
               </label>
               <label className="text-xs text-stone-500">
@@ -472,17 +598,79 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
                   className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm"
                 />
               </label>
+              <label className="text-xs text-stone-500">
+                학년
+                <input
+                  type="number"
+                  min={1}
+                  max={6}
+                  disabled={teacherIsSchoolAdmin}
+                  value={teacherIsSchoolAdmin ? '' : teacherGrade}
+                  onChange={(e) => setTeacherGrade(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm disabled:bg-stone-50"
+                />
+              </label>
+              <label className="text-xs text-stone-500">
+                반
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  disabled={teacherIsSchoolAdmin}
+                  value={teacherIsSchoolAdmin ? '' : teacherClassNum}
+                  onChange={(e) => setTeacherClassNum(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm disabled:bg-stone-50"
+                />
+              </label>
+              <label className="text-xs text-stone-500 flex items-center gap-2 lg:col-span-2 py-2">
+                <input
+                  type="checkbox"
+                  checked={teacherIsSchoolAdmin}
+                  onChange={(e) => setTeacherIsSchoolAdmin(e.target.checked)}
+                />
+                학교 최고관리자 (학년·반 없이 학교 전체 학생 수정)
+              </label>
               <button type="submit" className="rounded-lg bg-amber-500 hover:bg-amber-400 text-stone-950 font-semibold text-sm py-2">
-                담임 아이디 만들기
+                계정 만들기
               </button>
-              {teacherMessage && <p className="sm:col-span-4 text-sm text-stone-600">{teacherMessage}</p>}
+              {teacherMessage && <p className="sm:col-span-2 lg:col-span-6 text-sm text-stone-600 whitespace-pre-wrap">{teacherMessage}</p>}
             </form>
+
+            <div className="bg-white border border-stone-200 rounded-2xl p-4 flex flex-wrap items-center gap-3">
+              <p className="text-sm text-stone-600">엑셀/CSV로 여러 교사 계정을 한 번에 만들 수 있습니다.</p>
+              <button
+                type="button"
+                onClick={downloadTeacherTemplate}
+                className="px-3 py-1.5 rounded-lg text-xs border border-stone-200 bg-stone-50 hover:bg-stone-100"
+              >
+                양식 받기
+              </button>
+              <label className="px-3 py-1.5 rounded-lg text-xs border border-amber-300 bg-amber-50 text-amber-800 cursor-pointer flex items-center gap-1.5">
+                <Upload className="w-3.5 h-3.5" />
+                {uploadingTeachers ? '등록 중...' : '엑셀 업로드'}
+                <input
+                  type="file"
+                  accept=".xlsx,.xls,.csv,text/csv"
+                  className="hidden"
+                  disabled={uploadingTeachers}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = '';
+                    if (file) void uploadTeacherFile(file);
+                  }}
+                />
+              </label>
+              <p className="text-xs text-stone-400">열: 학교명, 아이디, 비밀번호, 학년, 반, 구분(담임교사/학교최고관리자)</p>
+            </div>
+
             <AdminTable
               empty="등록된 담임교사가 없습니다."
-              headers={['학교', '아이디', '최근 로그인', '']}
+              headers={['학교', '아이디', '역할', '학급', '최근 로그인', '']}
               rows={teachers.map((teacher) => [
                 teacher.schoolName,
                 teacher.username,
+                teacher.role === 'school_admin' ? '학교 최고관리자' : '담임교사',
+                teacher.role === 'school_admin' ? '학교 전체' : `${teacher.grade}학년 ${teacher.classNum}반`,
                 new Date(teacher.lastLoginAt).toLocaleString('ko-KR'),
                 <button
                   key={teacher.id}
@@ -499,6 +687,75 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
           </section>
         )}
       </main>
+
+      {editingStudent && (
+        <div className="fixed inset-0 z-40 bg-stone-950/40 flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-white rounded-2xl border border-stone-200 p-5 space-y-3">
+            <h2 className="font-semibold">학생 정보 수정</h2>
+            <p className="text-xs text-stone-500">
+              {editingStudent.schoolName} · 성명은 로그인 암호와 같습니다.
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              <label className="text-xs text-stone-500">
+                학년
+                <input
+                  type="number"
+                  min={1}
+                  value={editGrade}
+                  onChange={(e) => setEditGrade(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="text-xs text-stone-500">
+                반
+                <input
+                  type="number"
+                  min={1}
+                  value={editClassNum}
+                  onChange={(e) => setEditClassNum(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="text-xs text-stone-500">
+                번호
+                <input
+                  type="number"
+                  min={1}
+                  value={editStudentNum}
+                  onChange={(e) => setEditStudentNum(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm"
+                />
+              </label>
+            </div>
+            <label className="block text-xs text-stone-500">
+              성명 (로그인 암호)
+              <input
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm"
+              />
+            </label>
+            {editMessage && <p className="text-sm text-rose-600">{editMessage}</p>}
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                className="px-3 py-1.5 rounded-lg text-sm border border-stone-200"
+                onClick={() => setEditingStudent(null)}
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                disabled={savingStudent}
+                className="px-3 py-1.5 rounded-lg text-sm bg-amber-500 hover:bg-amber-400 text-stone-950 font-semibold disabled:opacity-60"
+                onClick={() => void saveStudentEditor()}
+              >
+                {savingStudent ? '저장 중...' : '저장'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

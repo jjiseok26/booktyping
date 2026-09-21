@@ -17,7 +17,8 @@ import {
 
 export { DEFAULT_ADMIN_PASSWORD, DEFAULT_ADMIN_USERNAME };
 
-export type StaffRole = 'admin' | 'teacher';
+export type StaffRole = 'admin' | 'teacher' | 'school_admin';
+export type StaffScope = { schoolName?: string; grade?: number; classNum?: number };
 
 export interface StaffSession {
   id: string;
@@ -245,6 +246,9 @@ async function migrateExtraColumns(): Promise<void> {
       school_name TEXT NOT NULL,
       username TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
+      grade INTEGER NOT NULL DEFAULT 0,
+      class_num INTEGER NOT NULL DEFAULT 0,
+      is_school_admin INTEGER NOT NULL DEFAULT 0,
       created_at BIGINT NOT NULL,
       last_login_at BIGINT NOT NULL
     )`,
@@ -260,6 +264,18 @@ async function migrateExtraColumns(): Promise<void> {
     await runRaw(`ALTER TABLE book_reports ADD COLUMN paragraph_notes TEXT NOT NULL DEFAULT '[]'`);
   } catch {
     // column already exists
+  }
+  const teacherAlters = [
+    'ALTER TABLE teachers ADD COLUMN grade INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE teachers ADD COLUMN class_num INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE teachers ADD COLUMN is_school_admin INTEGER NOT NULL DEFAULT 0',
+  ];
+  for (const sql of teacherAlters) {
+    try {
+      await runRaw(sql);
+    } catch {
+      // column already exists
+    }
   }
   if (usePostgres()) {
     const timestampAlters = [
@@ -667,7 +683,14 @@ export async function listClassNumbers(filter: {
 }
 
 export async function listSchoolNames(): Promise<string[]> {
-  const rows = await query('SELECT DISTINCT school_name FROM students ORDER BY school_name');
+  const rows = await query(
+    `SELECT school_name FROM (
+       SELECT school_name FROM students
+       UNION
+       SELECT school_name FROM teachers
+     ) AS school_names
+     ORDER BY school_name`
+  );
   return rows.map((row) => String(row.school_name)).filter(Boolean);
 }
 
@@ -676,6 +699,8 @@ export interface AdminAccount {
   username: string;
   role: StaffRole;
   schoolName: string;
+  grade: number;
+  classNum: number;
   createdAt: number;
   lastLoginAt: number;
 }
@@ -684,6 +709,9 @@ export interface TeacherAccount {
   id: string;
   schoolName: string;
   username: string;
+  grade: number;
+  classNum: number;
+  role: 'teacher' | 'school_admin';
   createdAt: number;
   lastLoginAt: number;
 }
@@ -750,6 +778,8 @@ export async function loginAdmin(
       username: expectedAdminUser(),
       role: 'admin',
       schoolName: '',
+      grade: 0,
+      classNum: 0,
       createdAt: now,
       lastLoginAt: now,
     };
@@ -776,6 +806,8 @@ export async function loginAdmin(
       username: String(adminRow.username),
       role: 'admin',
       schoolName: '',
+      grade: 0,
+      classNum: 0,
       createdAt: Number(adminRow.created_at),
       lastLoginAt: now,
     };
@@ -794,20 +826,28 @@ export async function loginAdmin(
   if (teacherRow && verifyPassword(pass, String(teacherRow.password_hash))) {
     const now = Date.now();
     const schoolName = String(teacherRow.school_name);
+    const grade = Number(teacherRow.grade || 0);
+    const classNum = Number(teacherRow.class_num || 0);
+    const role: StaffRole = Number(teacherRow.is_school_admin) === 1 ? 'school_admin' : 'teacher';
     await run('UPDATE teachers SET last_login_at = ? WHERE id = ?', [now, String(teacherRow.id)]);
     const admin: AdminAccount = {
       id: String(teacherRow.id),
       username: String(teacherRow.username),
-      role: 'teacher',
+      role,
       schoolName,
+      grade,
+      classNum,
       createdAt: Number(teacherRow.created_at),
       lastLoginAt: now,
     };
     return {
       success: true,
-      message: `${schoolName} 담임교사로 로그인되었습니다.`,
-      token: signStaffToken({ u: admin.username, role: 'teacher', schoolName }),
-      role: 'teacher',
+      message:
+        role === 'school_admin'
+          ? `${schoolName} 최고관리자로 로그인되었습니다.`
+          : `${schoolName} ${grade}학년 ${classNum}반 담임교사로 로그인되었습니다.`,
+      token: signStaffToken({ u: admin.username, role, schoolName, grade, classNum }),
+      role,
       admin,
     };
   }
@@ -823,7 +863,7 @@ export async function loginTeacher(
   if (!result.success) {
     return { success: false, message: '선생님 아이디 또는 비밀번호가 올바르지 않습니다.' };
   }
-  if (result.role !== 'teacher' || !result.admin?.schoolName) {
+  if ((result.role !== 'teacher' && result.role !== 'school_admin') || !result.admin?.schoolName) {
     return { success: false, message: '선생님 계정으로 로그인해 주세요. 관리자는 관리자 로그인을 이용하세요.' };
   }
   return result;
@@ -834,10 +874,15 @@ export async function getAdminByToken(token: string): Promise<AdminAccount | nul
   const signed = readStaffToken(token);
   if (signed) {
     return {
-      id: signed.role === 'teacher' ? `teacher:${signed.username}` : 'admin-default',
+      id:
+        signed.role === 'teacher' || signed.role === 'school_admin'
+          ? `teacher:${signed.username}`
+          : 'admin-default',
       username: signed.username,
-      role: signed.role === 'teacher' ? 'teacher' : 'admin',
+      role: (signed.role as StaffRole) || 'admin',
       schoolName: signed.schoolName,
+      grade: Number(signed.grade || 0),
+      classNum: Number(signed.classNum || 0),
       createdAt: Date.now(),
       lastLoginAt: Date.now(),
     };
@@ -858,6 +903,8 @@ export async function getAdminByToken(token: string): Promise<AdminAccount | nul
     username: String(row.username),
     role: 'admin',
     schoolName: '',
+    grade: 0,
+    classNum: 0,
     createdAt: Number(row.created_at),
     lastLoginAt: Number(row.last_login_at),
   };
@@ -867,23 +914,34 @@ export async function createTeacher(data: {
   schoolName: string;
   username: string;
   password: string;
+  grade?: number;
+  classNum?: number;
+  schoolAdmin?: boolean;
 }): Promise<{ success: boolean; message: string; teacher?: TeacherAccount }> {
   const schoolName = expandSchoolName(data.schoolName);
   const username = data.username.trim();
   const password = data.password.trim();
+  const schoolAdmin = Boolean(data.schoolAdmin);
+  const grade = schoolAdmin ? 0 : Number(data.grade || 0);
+  const classNum = schoolAdmin ? 0 : Number(data.classNum || 0);
   if (!schoolName) return { success: false, message: '학교명을 입력해주세요.' };
   if (!username) return { success: false, message: '교사 아이디를 입력해주세요.' };
   if (username === expectedAdminUser()) {
     return { success: false, message: '관리자 아이디와 같은 이름은 사용할 수 없습니다.' };
   }
   if (password.length < 4) return { success: false, message: '비밀번호는 4자 이상 입력해주세요.' };
+  if (!schoolAdmin && (!Number.isInteger(grade) || grade < 1 || !Number.isInteger(classNum) || classNum < 1)) {
+    return { success: false, message: '담임교사는 학년과 반을 입력해주세요.' };
+  }
 
   const now = Date.now();
+  const id = `teacher-${now}-${Math.random().toString(36).slice(2, 8)}`;
+  const role: 'teacher' | 'school_admin' = schoolAdmin ? 'school_admin' : 'teacher';
   try {
     await run(
-      `INSERT INTO teachers (id, school_name, username, password_hash, created_at, last_login_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [`teacher-${now}`, schoolName, username, hashPassword(password), now, now]
+      `INSERT INTO teachers (id, school_name, username, password_hash, grade, class_num, is_school_admin, created_at, last_login_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, schoolName, username, hashPassword(password), grade, classNum, schoolAdmin ? 1 : 0, now, now]
     );
   } catch (error) {
     if (isUniqueViolation(error)) {
@@ -894,20 +952,58 @@ export async function createTeacher(data: {
 
   return {
     success: true,
-    message: `${schoolName} 담임교사 계정을 만들었습니다.`,
-    teacher: { id: `teacher-${now}`, schoolName, username, createdAt: now, lastLoginAt: now },
+    message: schoolAdmin
+      ? `${schoolName} 최고관리자 계정을 만들었습니다.`
+      : `${schoolName} ${grade}학년 ${classNum}반 담임교사 계정을 만들었습니다.`,
+    teacher: { id, schoolName, username, grade, classNum, role, createdAt: now, lastLoginAt: now },
+  };
+}
+
+export async function createTeachers(
+  rows: Array<{
+    schoolName: string;
+    username: string;
+    password: string;
+    grade?: number;
+    classNum?: number;
+    schoolAdmin?: boolean;
+  }>
+): Promise<{ success: boolean; message: string; created: number; failed: string[]; teachers: TeacherAccount[] }> {
+  const failed: string[] = [];
+  let created = 0;
+  for (const row of rows) {
+    const result = await createTeacher(row);
+    if (result.success) created += 1;
+    else failed.push(`${row.username || '(아이디 없음)'}: ${result.message}`);
+  }
+  return {
+    success: created > 0,
+    message: failed.length
+      ? `${created}명 등록, ${failed.length}건 실패`
+      : `${created}명의 교사 계정을 만들었습니다.`,
+    created,
+    failed,
+    teachers: await listTeachers(),
+  };
+}
+
+function mapTeacher(row: SqlRow): TeacherAccount {
+  const schoolAdmin = Number(row.is_school_admin) === 1;
+  return {
+    id: String(row.id),
+    schoolName: String(row.school_name),
+    username: String(row.username),
+    grade: Number(row.grade || 0),
+    classNum: Number(row.class_num || 0),
+    role: schoolAdmin ? 'school_admin' : 'teacher',
+    createdAt: Number(row.created_at),
+    lastLoginAt: Number(row.last_login_at),
   };
 }
 
 export async function listTeachers(): Promise<TeacherAccount[]> {
-  const rows = await query('SELECT * FROM teachers ORDER BY school_name, username');
-  return rows.map((row) => ({
-    id: String(row.id),
-    schoolName: String(row.school_name),
-    username: String(row.username),
-    createdAt: Number(row.created_at),
-    lastLoginAt: Number(row.last_login_at),
-  }));
+  const rows = await query('SELECT * FROM teachers ORDER BY school_name, is_school_admin DESC, grade, class_num, username');
+  return rows.map(mapTeacher);
 }
 
 export async function deleteTeacher(id: string): Promise<TeacherAccount[]> {
@@ -920,25 +1016,40 @@ export async function logoutAdmin(token: string): Promise<void> {
   await run('DELETE FROM admin_sessions WHERE token_hash = ?', [hashToken(token)]);
 }
 
-function schoolFilter(alias: string, schoolName?: string): { sql: string; params: unknown[] } {
-  if (!schoolName) return { sql: '', params: [] };
-  return { sql: ` WHERE ${alias}.school_name = ? `, params: [schoolName] };
+function staffFilter(alias: string, scope?: StaffScope | string): { sql: string; params: unknown[] } {
+  const normalized: StaffScope = typeof scope === 'string' ? { schoolName: scope } : scope || {};
+  const clauses: string[] = [];
+  const params: unknown[] = [];
+  if (normalized.schoolName) {
+    clauses.push(`${alias}.school_name = ?`);
+    params.push(normalized.schoolName);
+  }
+  if (normalized.grade && normalized.grade > 0) {
+    clauses.push(`${alias}.grade = ?`);
+    params.push(normalized.grade);
+  }
+  if (normalized.classNum && normalized.classNum > 0) {
+    clauses.push(`${alias}.class_num = ?`);
+    params.push(normalized.classNum);
+  }
+  return { sql: clauses.length ? ` WHERE ${clauses.join(' AND ')} ` : '', params };
 }
 
-export async function getAdminOverview(schoolName?: string): Promise<AdminOverview> {
-  if (schoolName) {
-    const students = await query('SELECT COUNT(*) AS count FROM students WHERE school_name = ?', [schoolName]);
+export async function getAdminOverview(scope?: StaffScope | string): Promise<AdminOverview> {
+  const filter = staffFilter('s', scope);
+  if (filter.params.length > 0) {
+    const students = await query(`SELECT COUNT(*) AS count FROM students s ${filter.sql}`, filter.params);
     const sessions = await query(
       `SELECT COUNT(*) AS count FROM typing_sessions ts
        JOIN students s ON s.id = ts.student_id
-       WHERE s.school_name = ?`,
-      [schoolName]
+       ${filter.sql}`,
+      filter.params
     );
     const reports = await query(
       `SELECT COUNT(*) AS count FROM book_reports br
        JOIN students s ON s.id = br.student_id
-       WHERE s.school_name = ?`,
-      [schoolName]
+       ${filter.sql}`,
+      filter.params
     );
     return {
       studentCount: Number(students[0]?.count || 0),
@@ -956,8 +1067,8 @@ export async function getAdminOverview(schoolName?: string): Promise<AdminOvervi
   };
 }
 
-export async function listAllStudents(schoolName?: string): Promise<AdminStudentRow[]> {
-  const filter = schoolFilter('s', schoolName);
+export async function listAllStudents(scope?: StaffScope | string): Promise<AdminStudentRow[]> {
+  const filter = staffFilter('s', scope);
   const rows = await query(
     `SELECT
       s.id, s.school_year, s.school_name, s.grade, s.class_num, s.student_num, s.name,
@@ -985,8 +1096,54 @@ export async function deleteStudentAccount(id: string): Promise<void> {
   await run('DELETE FROM students WHERE id = ?', [id]);
 }
 
-export async function listAllSessions(limit = 200, schoolName?: string): Promise<TypingSessionResult[]> {
-  const filter = schoolFilter('s', schoolName);
+export async function updateStudentAccount(
+  id: string,
+  patch: { grade?: number; classNum?: number; studentNum?: number; name?: string },
+  allowedSchool?: string
+): Promise<{ success: boolean; message: string; account?: StudentAccount }> {
+  const current = await getStudentById(id);
+  if (!current) return { success: false, message: '학생 계정을 찾을 수 없습니다.' };
+  if (allowedSchool && current.schoolName !== allowedSchool) {
+    return { success: false, message: '해당 학교 학생만 수정할 수 있습니다.' };
+  }
+
+  const grade = patch.grade === undefined ? current.grade : Number(patch.grade);
+  const classNum = patch.classNum === undefined ? current.classNum : Number(patch.classNum);
+  const studentNum = patch.studentNum === undefined ? current.studentNum : Number(patch.studentNum);
+  const name = patch.name === undefined ? current.name : String(patch.name).trim();
+  if (!name) return { success: false, message: '학생 성명(로그인 암호)을 입력해주세요.' };
+  if (!Number.isInteger(grade) || grade < 1 || !Number.isInteger(classNum) || classNum < 1 || !Number.isInteger(studentNum) || studentNum < 1) {
+    return { success: false, message: '학년, 반, 번호를 올바르게 입력해주세요.' };
+  }
+
+  const nextId = buildStudentAccountId(current.schoolYear, current.schoolName, grade, classNum, studentNum);
+  const now = Date.now();
+  if (nextId === id) {
+    await run('UPDATE students SET name = ?, last_login_at = ? WHERE id = ?', [name, now, id]);
+    return { success: true, message: '학생 정보를 수정했습니다.', account: { ...current, name, lastLoginAt: now } };
+  }
+
+  try {
+    await run(
+      `INSERT INTO students (id, school_year, school_name, grade, class_num, student_num, name, created_at, last_login_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [nextId, current.schoolYear, current.schoolName, grade, classNum, studentNum, name, current.createdAt, now]
+    );
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      return { success: false, message: '이미 사용 중인 학년/반/번호입니다.' };
+    }
+    throw error;
+  }
+  await run('UPDATE typing_sessions SET student_id = ? WHERE student_id = ?', [nextId, id]);
+  await run('UPDATE book_reports SET student_id = ? WHERE student_id = ?', [nextId, id]);
+  await run('DELETE FROM students WHERE id = ?', [id]);
+  const account = await getStudentById(nextId);
+  return { success: true, message: '학생 정보를 수정했습니다.', account: account || undefined };
+}
+
+export async function listAllSessions(limit = 200, scope?: StaffScope | string): Promise<TypingSessionResult[]> {
+  const filter = staffFilter('s', scope);
   const rows = await query(
     `SELECT ts.*, s.school_year, s.school_name, s.grade, s.class_num, s.student_num, s.name
      FROM typing_sessions ts
@@ -1011,8 +1168,8 @@ export async function listAllSessions(limit = 200, schoolName?: string): Promise
   });
 }
 
-export async function listAllReports(limit = 200, schoolName?: string): Promise<BookReport[]> {
-  const filter = schoolFilter('s', schoolName);
+export async function listAllReports(limit = 200, scope?: StaffScope | string): Promise<BookReport[]> {
+  const filter = staffFilter('s', scope);
   const rows = await query(
     `SELECT br.*, s.school_year, s.school_name, s.grade, s.class_num, s.student_num, s.name
      FROM book_reports br

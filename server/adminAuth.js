@@ -30,6 +30,8 @@ export function signStaffToken(payload) {
       u: payload.u,
       role: payload.role || 'admin',
       schoolName: payload.schoolName || '',
+      grade: Number(payload.grade || 0),
+      classNum: Number(payload.classNum || 0),
       exp: Date.now() + SESSION_MS,
     })
   ).toString('base64url');
@@ -50,10 +52,14 @@ export function readStaffToken(token) {
   try {
     const data = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
     if (!data.u || typeof data.exp !== 'number' || data.exp < Date.now()) return null;
+    const role =
+      data.role === 'school_admin' ? 'school_admin' : data.role === 'teacher' ? 'teacher' : 'admin';
     return {
       username: String(data.u),
-      role: data.role === 'teacher' ? 'teacher' : 'admin',
+      role,
       schoolName: String(data.schoolName || ''),
+      grade: Number(data.grade || 0),
+      classNum: Number(data.classNum || 0),
     };
   } catch {
     return null;
