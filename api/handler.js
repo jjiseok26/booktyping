@@ -8,16 +8,31 @@ export const config = {
   },
 };
 
+function isParsedObject(body) {
+  return Boolean(body && typeof body === 'object' && !Buffer.isBuffer(body) && Object.keys(body).length > 0);
+}
+
+async function readJsonBody(req) {
+  if (isParsedObject(req.body)) return req.body;
+  if (Buffer.isBuffer(req.body) || typeof req.body === 'string') {
+    const raw = String(req.body || '').trim();
+    return raw ? JSON.parse(raw) : {};
+  }
+  const chunks = [];
+  for await (const chunk of req) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  const raw = Buffer.concat(chunks).toString('utf8').trim();
+  return raw ? JSON.parse(raw) : {};
+}
+
 export default async function handler(req, res) {
-  try {
-    if (Buffer.isBuffer(req.body)) {
-      const raw = req.body.toString('utf8');
-      req.body = raw ? JSON.parse(raw) : {};
-    } else if (typeof req.body === 'string') {
-      req.body = req.body ? JSON.parse(req.body) : {};
+  if (req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'OPTIONS') {
+    try {
+      req.body = await readJsonBody(req);
+    } catch {
+      req.body = {};
     }
-  } catch {
-    req.body = {};
   }
   return app(req, res);
 }

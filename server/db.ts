@@ -286,28 +286,31 @@ export async function registerStudent(data: {
   studentNum: number;
   name: string;
 }): Promise<{ success: boolean; message: string; account?: StudentAccount }> {
-  const schoolName = expandSchoolName(data.schoolName);
-  const schoolYear = data.schoolYear.trim();
-  const name = data.name.trim();
+  const schoolName = expandSchoolName(String(data.schoolName || ''));
+  const schoolYear = String(data.schoolYear || '').trim();
+  const name = String(data.name || '').trim();
+  const grade = Number(data.grade);
+  const classNum = Number(data.classNum);
+  const studentNum = Number(data.studentNum);
   if (!schoolName) return { success: false, message: '학교명을 입력해주세요.' };
-  if (!name) return { success: false, message: '학생 성명을 입력해주세요. (성명이 암호 역할을 합니다)' };
-  if (data.grade < 1 || data.classNum < 1 || data.studentNum < 1) {
+  if (!name) return { success: false, message: '학생 성명을 입력해주세요. (성명이 로그인 암호 역할을 합니다)' };
+  if (!schoolYear || !Number.isInteger(grade) || grade < 1 || !Number.isInteger(classNum) || classNum < 1 || !Number.isInteger(studentNum) || studentNum < 1) {
     return { success: false, message: '학년, 반, 번호를 올바르게 입력해주세요.' };
   }
 
-  const id = buildStudentAccountId(schoolYear, schoolName, data.grade, data.classNum, data.studentNum);
+  const id = buildStudentAccountId(schoolYear, schoolName, grade, classNum, studentNum);
   const now = Date.now();
   try {
     await run(
       `INSERT INTO students (id, school_year, school_name, grade, class_num, student_num, name, created_at, last_login_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, schoolYear, schoolName, data.grade, data.classNum, data.studentNum, name, now, now]
+      [id, schoolYear, schoolName, grade, classNum, studentNum, name, now, now]
     );
   } catch (error) {
     if (isUniqueViolation(error)) {
       return {
         success: false,
-        message: `${schoolYear} ${schoolName} ${data.grade}학년 ${data.classNum}반 ${data.studentNum}번으로 이미 등록된 계정이 있습니다. 로그인 탭에서 본인 성명으로 로그인해 주세요.`,
+        message: `${schoolYear} ${schoolName} ${grade}학년 ${classNum}반 ${studentNum}번으로 이미 등록된 계정이 있습니다. 로그인 탭에서 본인 성명으로 로그인해 주세요.`,
       };
     }
     throw error;
@@ -329,24 +332,30 @@ export async function loginStudent(data: {
   studentNum: number;
   name: string;
 }): Promise<{ success: boolean; message: string; account?: StudentAccount }> {
-  const schoolName = expandSchoolName(data.schoolName) || data.schoolName.trim();
-  const schoolYear = data.schoolYear.trim();
-  const name = data.name.trim();
+  const schoolName = expandSchoolName(String(data.schoolName || '')) || String(data.schoolName || '').trim();
+  const schoolYear = String(data.schoolYear || '').trim();
+  const name = String(data.name || '').trim();
+  const grade = Number(data.grade);
+  const classNum = Number(data.classNum);
+  const studentNum = Number(data.studentNum);
   if (!schoolName) return { success: false, message: '학교명을 입력해주세요.' };
   if (!name) return { success: false, message: '등록된 학생 성명(암호)을 입력해주세요.' };
+  if (!schoolYear || !Number.isInteger(grade) || grade < 1 || !Number.isInteger(classNum) || classNum < 1 || !Number.isInteger(studentNum) || studentNum < 1) {
+    return { success: false, message: '학년, 반, 번호를 올바르게 입력해주세요.' };
+  }
 
-  const candidateNames = Array.from(new Set([schoolName, data.schoolName.trim()].filter(Boolean)));
+  const candidateNames = Array.from(new Set([schoolName, String(data.schoolName || '').trim()].filter(Boolean)));
   let matched: StudentAccount | null = null;
   let id = '';
   for (const candidate of candidateNames) {
-    id = buildStudentAccountId(schoolYear, candidate, data.grade, data.classNum, data.studentNum);
+    id = buildStudentAccountId(schoolYear, candidate, grade, classNum, studentNum);
     matched = await getStudentById(id);
     if (matched) break;
   }
   if (!matched) {
     return {
       success: false,
-      message: `입력하신 정보(${schoolYear} ${schoolName} ${data.grade}학년 ${data.classNum}반 ${data.studentNum}번)로 등록된 계정이 없습니다. [회원가입] 탭에서 먼저 등록해주세요.`,
+      message: `입력하신 정보(${schoolYear} ${schoolName} ${grade}학년 ${classNum}반 ${studentNum}번)로 등록된 계정이 없습니다. [회원가입] 탭에서 먼저 등록해주세요.`,
     };
   }
   if (matched.name.trim() !== name) {
