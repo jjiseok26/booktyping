@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { expandSchoolName } from '../utils/schoolName';
 
 interface SchoolNameFieldProps {
   value: string;
@@ -29,12 +30,16 @@ export const SchoolNameField: React.FC<SchoolNameFieldProps> = ({
         type="text"
         value={value}
         onChange={(e) => {
-          onChange(e.target.value);
+          onChange(expandSchoolName(e.target.value) || e.target.value);
           setOpen(true);
         }}
         onFocus={() => setOpen(true)}
         onClick={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 180)}
+        onBlur={() => {
+          const expanded = expandSchoolName(value);
+          if (expanded !== value) onChange(expanded);
+          setTimeout(() => setOpen(false), 180);
+        }}
         placeholder={placeholder}
         autoComplete="off"
         className={inputClassName}

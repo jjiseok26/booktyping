@@ -100,6 +100,7 @@ export interface BookReport {
   quoteReason: string;       // 선정한 이유
   content: string;           // 감상 및 느낀 점
   personalTakeaway: string;  // 나에게 주는 교훈 및 다짐
+  paragraphNotes?: Array<{ from: number; to: number; note: string }>;
 }
 
 export interface SentenceRealtimeState {

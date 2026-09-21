@@ -6,6 +6,15 @@
     },
     "api/[...path].js": {
       "includeFiles": "server/schema.sql"
+    },
+    "api/admin-login.js": {
+      "includeFiles": "server/adminAuth.js"
+    },
+    "api/admin/login.js": {
+      "includeFiles": "server/adminAuth.js"
+    },
+    "api/admin-me.js": {
+      "includeFiles": "server/adminAuth.js"
     }
   }
 }

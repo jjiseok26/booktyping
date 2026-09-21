@@ -10,12 +10,15 @@ import {
   Search,
   Lock,
   LayoutDashboard,
+  UserPlus,
 } from 'lucide-react';
 import { BookReport, StudentAccount, TypingSessionResult } from '../types';
 import {
+  apiAdminCreateTeacher,
   apiAdminDeleteReport,
   apiAdminDeleteSession,
   apiAdminDeleteStudent,
+  apiAdminDeleteTeacher,
   apiAdminLogin,
   apiAdminLogout,
   apiAdminMe,
@@ -23,11 +26,16 @@ import {
   apiAdminReports,
   apiAdminSessions,
   apiAdminStudents,
+  apiAdminTeachers,
   getAdminToken,
+  setAdminToken,
 } from '../utils/dbClient';
+import { expandSchoolName } from '../utils/schoolName';
 
-type AdminTab = 'overview' | 'students' | 'sessions' | 'reports';
+type AdminTab = 'overview' | 'students' | 'sessions' | 'reports' | 'teachers';
+type StaffRole = 'admin' | 'teacher';
 type AdminStudent = StudentAccount & { sessionCount: number; reportCount: number; totalChars: number };
+type TeacherRow = { id: string; schoolName: string; username: string; createdAt: number; lastLoginAt: number };
 
 interface AdminViewProps {
   onBack: () => void;
@@ -38,15 +46,25 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [adminName, setAdminName] = useState<string | null>(null);
+  const [staffRole, setStaffRole] = useState<StaffRole>('admin');
+  const [staffSchool, setStaffSchool] = useState('');
   const [loading, setLoading] = useState(Boolean(getAdminToken()));
+  const [submitting, setSubmitting] = useState(false);
   const [tab, setTab] = useState<AdminTab>('overview');
   const [query, setQuery] = useState('');
   const [overview, setOverview] = useState({ studentCount: 0, sessionCount: 0, reportCount: 0 });
   const [students, setStudents] = useState<AdminStudent[]>([]);
   const [sessions, setSessions] = useState<TypingSessionResult[]>([]);
   const [reports, setReports] = useState<BookReport[]>([]);
+  const [teachers, setTeachers] = useState<TeacherRow[]>([]);
+  const [teacherSchool, setTeacherSchool] = useState('');
+  const [teacherUsername, setTeacherUsername] = useState('');
+  const [teacherPassword, setTeacherPassword] = useState('');
+  const [teacherMessage, setTeacherMessage] = useState<string | null>(null);
 
-  const loadDashboard = async () => {
+  const isAdmin = staffRole === 'admin';
+
+  const loadDashboard = async (role: StaffRole = staffRole) => {
     const [nextOverview, nextStudents, nextSessions, nextReports] = await Promise.all([
       apiAdminOverview(),
       apiAdminStudents(),
@@ -57,6 +75,11 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack }) => {
     setStudents(nextStudents);
     setSessions(nextSessions);
     setReports(nextReports);
+    if (role === 'admin') {
+      setTeachers(await apiAdminTeachers());
+    } else {
+      setTeachers([]);
+    }
   };
 
   useEffect(() => {
@@ -67,33 +90,53 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack }) => {
     void apiAdminMe()
       .then(async (data) => {
         setAdminName(data.admin.username);
-        await loadDashboard();
+        setStaffRole(data.admin.role === 'teacher' ? 'teacher' : 'admin');
+        setStaffSchool(data.admin.schoolName || '');
+        await loadDashboard(data.admin.role === 'teacher' ? 'teacher' : 'admin');
       })
       .catch(() => {
+        setAdminToken(null);
         setAdminName(null);
       })
       .finally(() => setLoading(false));
   }, []);
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(null);
-    const result = await apiAdminLogin(username, password);
-    if (!result.success || !result.admin) {
-      setError(result.message || '로그인에 실패했습니다.');
-      return;
+    setSubmitting(true);
+    const form = new FormData(e.currentTarget);
+    const nextUsername = (username || String(form.get('username') || '')).trim();
+    const nextPassword = password || String(form.get('password') || '');
+    try {
+      const result = await apiAdminLogin(nextUsername, nextPassword);
+      if (!result.success || !result.admin) {
+        setError(result.message || '로그인에 실패했습니다.');
+        return;
+      }
+      setAdminName(result.admin.username);
+      setStaffRole(result.admin.role === 'teacher' || result.role === 'teacher' ? 'teacher' : 'admin');
+      setStaffSchool(result.admin.schoolName || '');
+      setPassword('');
+      try {
+        await loadDashboard(result.admin.role === 'teacher' || result.role === 'teacher' ? 'teacher' : 'admin');
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '관리자 데이터를 불러오지 못했습니다.');
+      }
+    } finally {
+      setSubmitting(false);
     }
-    setAdminName(result.admin.username);
-    setPassword('');
-    await loadDashboard();
   };
 
   const handleLogout = async () => {
     await apiAdminLogout();
     setAdminName(null);
+    setStaffRole('admin');
+    setStaffSchool('');
     setStudents([]);
     setSessions([]);
     setReports([]);
+    setTeachers([]);
   };
 
   const filteredStudents = useMemo(() => {
@@ -140,14 +183,15 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack }) => {
               <Lock className="w-5 h-5" />
             </div>
             <div>
-              <h1 className="text-lg font-bold">관리자 로그인</h1>
-              <p className="text-xs text-stone-400">학생·필사·독후감 데이터를 조회하고 삭제합니다.</p>
+              <h1 className="text-lg font-bold">관리자 · 담임교사 로그인</h1>
+              <p className="text-xs text-stone-400">관리자는 담임 아이디를 만들고, 담임은 해당 학교 학생 활동을 확인합니다.</p>
             </div>
           </div>
           <form onSubmit={handleLogin} className="space-y-3">
             <label className="block text-xs text-stone-400">
               아이디
               <input
+                name="username"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 className="mt-1 w-full rounded-xl bg-stone-800 border border-stone-700 px-3 py-2.5 text-sm text-stone-100"
@@ -157,6 +201,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack }) => {
             <label className="block text-xs text-stone-400">
               비밀번호
               <input
+                name="password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -167,9 +212,10 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack }) => {
             {error && <p className="text-sm text-rose-400">{error}</p>}
             <button
               type="submit"
-              className="w-full mt-2 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-semibold text-sm"
+              disabled={submitting}
+              className="w-full mt-2 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-60 text-stone-950 font-semibold text-sm"
             >
-              로그인
+              {submitting ? '로그인 중...' : '로그인'}
             </button>
           </form>
         </div>
@@ -186,8 +232,10 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack }) => {
               <ShieldCheck className="w-5 h-5" />
             </div>
             <div>
-              <p className="font-bold">관리자 콘솔</p>
-              <p className="text-xs text-stone-400">{adminName} 계정</p>
+              <p className="font-bold">{isAdmin ? '관리자 콘솔' : '담임교사 콘솔'}</p>
+              <p className="text-xs text-stone-400">
+                {adminName} 계정{staffSchool ? ` · ${staffSchool}` : ''}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -218,6 +266,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack }) => {
               ['students', '학생', Users],
               ['sessions', '필사 기록', Keyboard],
               ['reports', '독후감', FileText],
+              ...(isAdmin ? ([['teachers', '담임교사', UserPlus]] as const) : []),
             ] as const
           ).map(([id, label, Icon]) => (
             <button
@@ -248,7 +297,10 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack }) => {
 
         {tab === 'overview' && (
           <section className="bg-white border border-stone-200 rounded-2xl p-5 text-sm text-stone-600 leading-relaxed">
-            학급 학생 계정, 필사 세션, 독후감을 한곳에서 확인합니다. 학생을 삭제하면 해당 학생의 타자 기록과 독후감도 함께 삭제됩니다.
+            학급 학생 계정, 필사 세션, 독후감을 한곳에서 확인합니다.
+            {isAdmin
+              ? ' 담임교사 아이디를 학교별로 만들면 해당 학교 학생 활동만 볼 수 있습니다. 학생을 삭제하면 타자 기록과 독후감도 함께 삭제됩니다.'
+              : ` ${staffSchool} 학생들의 필사·독후 활동을 조회할 수 있습니다.`}
           </section>
         )}
 
@@ -263,16 +315,20 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack }) => {
               String(student.sessionCount),
               String(student.reportCount),
               String(student.totalChars),
-              <button
-                key={student.id}
-                className="text-rose-600 hover:text-rose-700"
-                onClick={() => {
-                  if (!window.confirm(`${student.name} 학생 계정과 기록을 삭제할까요?`)) return;
-                  void apiAdminDeleteStudent(student.id).then(setStudents).then(loadDashboard);
-                }}
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>,
+              isAdmin ? (
+                <button
+                  key={student.id}
+                  className="text-rose-600 hover:text-rose-700"
+                  onClick={() => {
+                    if (!window.confirm(`${student.name} 학생 계정과 기록을 삭제할까요?`)) return;
+                    void apiAdminDeleteStudent(student.id).then(setStudents).then(() => loadDashboard('admin'));
+                  }}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              ) : (
+                ''
+              ),
             ])}
           />
         )}
@@ -287,17 +343,21 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack }) => {
               `${session.cpm}`,
               `${session.accuracy}%`,
               String(session.totalChars),
-              <button
-                key={session.id}
-                className="text-rose-600 hover:text-rose-700"
-                onClick={() => {
-                  const studentId = session.studentProfile?.accountId;
-                  if (!studentId || !window.confirm('이 필사 기록을 삭제할까요?')) return;
-                  void apiAdminDeleteSession(session.id, studentId).then(setSessions).then(loadDashboard);
-                }}
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>,
+              isAdmin ? (
+                <button
+                  key={session.id}
+                  className="text-rose-600 hover:text-rose-700"
+                  onClick={() => {
+                    const studentId = session.studentProfile?.accountId;
+                    if (!studentId || !window.confirm('이 필사 기록을 삭제할까요?')) return;
+                    void apiAdminDeleteSession(session.id, studentId).then(setSessions).then(() => loadDashboard('admin'));
+                  }}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              ) : (
+                ''
+              ),
             ])}
           />
         )}
@@ -311,19 +371,103 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack }) => {
               report.bookTitle,
               report.title,
               `${report.rating}점`,
-              <button
-                key={report.id}
-                className="text-rose-600 hover:text-rose-700"
-                onClick={() => {
-                  const studentId = report.studentProfile?.accountId;
-                  if (!studentId || !window.confirm('이 독후감을 삭제할까요?')) return;
-                  void apiAdminDeleteReport(report.id, studentId).then(setReports).then(loadDashboard);
-                }}
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>,
+              isAdmin ? (
+                <button
+                  key={report.id}
+                  className="text-rose-600 hover:text-rose-700"
+                  onClick={() => {
+                    const studentId = report.studentProfile?.accountId;
+                    if (!studentId || !window.confirm('이 독후감을 삭제할까요?')) return;
+                    void apiAdminDeleteReport(report.id, studentId).then(setReports).then(() => loadDashboard('admin'));
+                  }}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              ) : (
+                ''
+              ),
             ])}
           />
+        )}
+        {tab === 'teachers' && isAdmin && (
+          <section className="space-y-4">
+            <form
+              className="bg-white border border-stone-200 rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-4 gap-3 items-end"
+              onSubmit={(e) => {
+                e.preventDefault();
+                setTeacherMessage(null);
+                void apiAdminCreateTeacher({
+                  schoolName: expandSchoolName(teacherSchool),
+                  username: teacherUsername.trim(),
+                  password: teacherPassword,
+                })
+                  .then((result) => {
+                    setTeacherMessage(result.message || '담임교사 계정을 만들었습니다.');
+                    if (result.teachers) setTeachers(result.teachers);
+                    if (result.success) {
+                      setTeacherSchool('');
+                      setTeacherUsername('');
+                      setTeacherPassword('');
+                    }
+                  })
+                  .catch((err) => {
+                    setTeacherMessage(err instanceof Error ? err.message : '담임교사 계정을 만들지 못했습니다.');
+                  });
+              }}
+            >
+              <label className="text-xs text-stone-500">
+                학교명
+                <input
+                  value={teacherSchool}
+                  onChange={(e) => setTeacherSchool(e.target.value)}
+                  onBlur={() => setTeacherSchool(expandSchoolName(teacherSchool))}
+                  placeholder="예: 금구중"
+                  className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="text-xs text-stone-500">
+                교사 아이디
+                <input
+                  value={teacherUsername}
+                  onChange={(e) => setTeacherUsername(e.target.value)}
+                  placeholder="예: geumgu1"
+                  className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="text-xs text-stone-500">
+                비밀번호
+                <input
+                  type="password"
+                  value={teacherPassword}
+                  onChange={(e) => setTeacherPassword(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm"
+                />
+              </label>
+              <button type="submit" className="rounded-lg bg-amber-500 hover:bg-amber-400 text-stone-950 font-semibold text-sm py-2">
+                담임 아이디 만들기
+              </button>
+              {teacherMessage && <p className="sm:col-span-4 text-sm text-stone-600">{teacherMessage}</p>}
+            </form>
+            <AdminTable
+              empty="등록된 담임교사가 없습니다."
+              headers={['학교', '아이디', '최근 로그인', '']}
+              rows={teachers.map((teacher) => [
+                teacher.schoolName,
+                teacher.username,
+                new Date(teacher.lastLoginAt).toLocaleString('ko-KR'),
+                <button
+                  key={teacher.id}
+                  className="text-rose-600 hover:text-rose-700"
+                  onClick={() => {
+                    if (!window.confirm(`${teacher.username} 계정을 삭제할까요?`)) return;
+                    void apiAdminDeleteTeacher(teacher.id).then(setTeachers);
+                  }}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>,
+              ])}
+            />
+          </section>
         )}
       </main>
     </div>

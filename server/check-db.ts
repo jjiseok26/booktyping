@@ -11,6 +11,7 @@ import {
   DEFAULT_ADMIN_PASSWORD,
   DEFAULT_ADMIN_USERNAME,
   loginAdmin,
+  getAdminByToken,
   getAdminOverview,
 } from './db';
 
@@ -111,6 +112,31 @@ async function main() {
 
   const adminOk = await loginAdmin(DEFAULT_ADMIN_USERNAME, DEFAULT_ADMIN_PASSWORD);
   if (!adminOk.success || !adminOk.token) throw new Error(adminOk.message);
+  const adminMe = await getAdminByToken(adminOk.token);
+  if (!adminMe || adminMe.username !== DEFAULT_ADMIN_USERNAME) {
+    throw new Error('signed admin token was not accepted');
+  }
+
+  const expanded = await registerStudent({
+    schoolYear: '2026학년도',
+    schoolName: '금구중',
+    grade: 1,
+    classNum: 1,
+    studentNum: 1,
+    name: '박민수',
+  });
+  if (!expanded.success || expanded.account?.schoolName !== '금구중학교') {
+    throw new Error(`school short name was not expanded: ${expanded.account?.schoolName || expanded.message}`);
+  }
+  const expandedLogin = await loginStudent({
+    schoolYear: '2026학년도',
+    schoolName: '금구중',
+    grade: 1,
+    classNum: 1,
+    studentNum: 1,
+    name: '박민수',
+  });
+  if (!expandedLogin.success) throw new Error(expandedLogin.message);
 
   const overview = await getAdminOverview();
   if (overview.studentCount < 1) throw new Error('admin overview missing students');

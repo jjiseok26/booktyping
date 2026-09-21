@@ -22,6 +22,7 @@ import {
   rememberRecentAccount,
 } from '../utils/storage';
 import { apiListSchools, apiLoginStudent, apiRegisterStudent } from '../utils/dbClient';
+import { expandSchoolName } from '../utils/schoolName';
 import { SchoolNameField } from './SchoolNameField';
 
 interface StudentAuthModalProps {
@@ -118,8 +119,9 @@ export const StudentAuthModal: React.FC<StudentAuthModalProps> = ({
     setError(null);
     setSuccessMessage(null);
 
-    const trimmedSchool = schoolName.trim();
+    const trimmedSchool = expandSchoolName(schoolName);
     const trimmedName = name.trim();
+    if (trimmedSchool !== schoolName) setSchoolName(trimmedSchool);
 
     if (!trimmedSchool) {
       setError('학교명을 입력해주세요.');
@@ -172,8 +174,9 @@ export const StudentAuthModal: React.FC<StudentAuthModalProps> = ({
     setError(null);
     setSuccessMessage(null);
 
-    const trimmedSchool = schoolName.trim();
+    const trimmedSchool = expandSchoolName(schoolName);
     const trimmedName = name.trim();
+    if (trimmedSchool !== schoolName) setSchoolName(trimmedSchool);
 
     if (!trimmedSchool) {
       setError('학교명을 입력해주세요.');

@@ -3,7 +3,30 @@ import path from 'node:path';
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import type { BookReport, StudentAccount, StudentRankRecord, TypingSessionResult } from '../src/types';
+import { expandSchoolName } from '../src/utils/schoolName';
 import { calculateCumulativeEffortScore, getTitleBadge } from '../src/utils/storage';
+import {
+  DEFAULT_ADMIN_PASSWORD,
+  DEFAULT_ADMIN_USERNAME,
+  expectedAdminPassword,
+  expectedAdminUser,
+  readStaffToken,
+  secretsEqual,
+  signStaffToken,
+} from './adminAuth.js';
+
+export { DEFAULT_ADMIN_PASSWORD, DEFAULT_ADMIN_USERNAME };
+
+export type StaffRole = 'admin' | 'teacher';
+
+export interface StaffSession {
+  id: string;
+  username: string;
+  role: StaffRole;
+  schoolName: string;
+  createdAt: number;
+  lastLoginAt: number;
+}
 
 const SCHEMA_CANDIDATES = [
   path.join(import.meta.dirname, 'schema.sql'),
@@ -105,6 +128,7 @@ async function ensureSchema(): Promise<void> {
       getSqlite().exec(SCHEMA);
     }
     schemaReady = true;
+    await migrateExtraColumns();
   }
   if (seedingAdmin) return;
   seedingAdmin = true;
@@ -201,7 +225,52 @@ function mapReport(row: SqlRow): BookReport {
     quoteReason: String(row.quote_reason),
     content: String(row.content),
     personalTakeaway: String(row.personal_takeaway),
+    paragraphNotes: parseParagraphNotes(row.paragraph_notes),
   };
+}
+
+function parseParagraphNotes(value: unknown): BookReport['paragraphNotes'] {
+  try {
+    const parsed = JSON.parse(String(value || '[]'));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+async function migrateExtraColumns(): Promise<void> {
+  const statements = [
+    `CREATE TABLE IF NOT EXISTS teachers (
+      id TEXT PRIMARY KEY,
+      school_name TEXT NOT NULL,
+      username TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      last_login_at INTEGER NOT NULL
+    )`,
+  ];
+  for (const sql of statements) {
+    try {
+      await runRaw(sql);
+    } catch {
+      // already exists
+    }
+  }
+  try {
+    await runRaw(`ALTER TABLE book_reports ADD COLUMN paragraph_notes TEXT NOT NULL DEFAULT '[]'`);
+  } catch {
+    // column already exists
+  }
+}
+
+async function runRaw(sql: string): Promise<void> {
+  if (usePostgres()) {
+    const { neon } = await import('@neondatabase/serverless');
+    const sqlFn = neon(process.env.DATABASE_URL || process.env.POSTGRES_URL || '');
+    await sqlFn.query(sql);
+    return;
+  }
+  getSqlite().exec(sql);
 }
 
 function isUniqueViolation(error: unknown): boolean {
@@ -217,7 +286,7 @@ export async function registerStudent(data: {
   studentNum: number;
   name: string;
 }): Promise<{ success: boolean; message: string; account?: StudentAccount }> {
-  const schoolName = data.schoolName.trim();
+  const schoolName = expandSchoolName(data.schoolName);
   const schoolYear = data.schoolYear.trim();
   const name = data.name.trim();
   if (!schoolName) return { success: false, message: '학교명을 입력해주세요.' };
@@ -260,14 +329,20 @@ export async function loginStudent(data: {
   studentNum: number;
   name: string;
 }): Promise<{ success: boolean; message: string; account?: StudentAccount }> {
-  const schoolName = data.schoolName.trim();
+  const schoolName = expandSchoolName(data.schoolName) || data.schoolName.trim();
   const schoolYear = data.schoolYear.trim();
   const name = data.name.trim();
   if (!schoolName) return { success: false, message: '학교명을 입력해주세요.' };
   if (!name) return { success: false, message: '등록된 학생 성명(암호)을 입력해주세요.' };
 
-  const id = buildStudentAccountId(schoolYear, schoolName, data.grade, data.classNum, data.studentNum);
-  const matched = await getStudentById(id);
+  const candidateNames = Array.from(new Set([schoolName, data.schoolName.trim()].filter(Boolean)));
+  let matched: StudentAccount | null = null;
+  let id = '';
+  for (const candidate of candidateNames) {
+    id = buildStudentAccountId(schoolYear, candidate, data.grade, data.classNum, data.studentNum);
+    matched = await getStudentById(id);
+    if (matched) break;
+  }
   if (!matched) {
     return {
       success: false,
@@ -368,7 +443,7 @@ export async function saveReport(studentId: string, report: BookReport): Promise
       `UPDATE book_reports SET
         excerpt_id = ?, book_title = ?, author = ?, excerpt_title = ?,
         cpm = ?, accuracy = ?, duration_seconds = ?, title = ?, rating = ?,
-        memorable_quote = ?, quote_reason = ?, content = ?, personal_takeaway = ?
+        memorable_quote = ?, quote_reason = ?, content = ?, personal_takeaway = ?, paragraph_notes = ?
        WHERE id = ? AND student_id = ?`,
       [
         report.excerptId,
@@ -384,6 +459,7 @@ export async function saveReport(studentId: string, report: BookReport): Promise
         report.quoteReason,
         report.content,
         report.personalTakeaway,
+        JSON.stringify(report.paragraphNotes || []),
         report.id,
         studentId,
       ]
@@ -393,8 +469,8 @@ export async function saveReport(studentId: string, report: BookReport): Promise
       `INSERT INTO book_reports (
         id, student_id, excerpt_id, book_title, author, excerpt_title,
         cpm, accuracy, duration_seconds, title, rating,
-        memorable_quote, quote_reason, content, personal_takeaway, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        memorable_quote, quote_reason, content, personal_takeaway, paragraph_notes, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         report.id,
         studentId,
@@ -411,6 +487,7 @@ export async function saveReport(studentId: string, report: BookReport): Promise
         report.quoteReason,
         report.content,
         report.personalTakeaway,
+        JSON.stringify(report.paragraphNotes || []),
         report.createdAt || Date.now(),
       ]
     );
@@ -463,9 +540,15 @@ export async function getLeaderboard(filter: {
   schoolYear: string;
   schoolName: string;
   grade: number;
-  classNum: number;
+  classNum?: number;
   currentStudentId?: string;
 }): Promise<StudentRankRecord[]> {
+  const params: unknown[] = [filter.schoolYear, filter.schoolName, filter.grade];
+  let classSql = '';
+  if (filter.classNum && filter.classNum > 0) {
+    classSql = ' AND s.class_num = ? ';
+    params.push(filter.classNum);
+  }
   const rows = await query(
     `SELECT
       s.id,
@@ -485,9 +568,10 @@ export async function getLeaderboard(filter: {
       COALESCE(MAX(ts.created_at), 0) AS last_session_at
      FROM students s
      LEFT JOIN typing_sessions ts ON ts.student_id = s.id
-     WHERE s.school_year = ? AND s.school_name = ? AND s.grade = ? AND s.class_num = ?
-     GROUP BY s.id, s.school_year, s.school_name, s.grade, s.class_num, s.student_num, s.name`,
-    [filter.schoolYear, filter.schoolName, filter.grade, filter.classNum]
+     WHERE s.school_year = ? AND s.school_name = ? AND s.grade = ? ${classSql}
+     GROUP BY s.id, s.school_year, s.school_name, s.grade, s.class_num, s.student_num, s.name
+     ORDER BY s.class_num, s.student_num`,
+    params
   );
 
   return rows.map((row) => {
@@ -538,6 +622,20 @@ export async function getLeaderboard(filter: {
   });
 }
 
+export async function listClassNumbers(filter: {
+  schoolYear: string;
+  schoolName: string;
+  grade: number;
+}): Promise<number[]> {
+  const rows = await query(
+    `SELECT DISTINCT class_num FROM students
+     WHERE school_year = ? AND school_name = ? AND grade = ?
+     ORDER BY class_num`,
+    [filter.schoolYear, filter.schoolName, filter.grade]
+  );
+  return rows.map((row) => Number(row.class_num)).filter((value) => value > 0);
+}
+
 export async function listSchoolNames(): Promise<string[]> {
   const rows = await query('SELECT DISTINCT school_name FROM students ORDER BY school_name');
   return rows.map((row) => String(row.school_name)).filter(Boolean);
@@ -545,6 +643,16 @@ export async function listSchoolNames(): Promise<string[]> {
 
 export interface AdminAccount {
   id: string;
+  username: string;
+  role: StaffRole;
+  schoolName: string;
+  createdAt: number;
+  lastLoginAt: number;
+}
+
+export interface TeacherAccount {
+  id: string;
+  schoolName: string;
   username: string;
   createdAt: number;
   lastLoginAt: number;
@@ -561,10 +669,6 @@ export interface AdminOverview {
   sessionCount: number;
   reportCount: number;
 }
-
-export const DEFAULT_ADMIN_USERNAME = 'admin';
-export const DEFAULT_ADMIN_PASSWORD = 'GaonAdmin2026!';
-const SESSION_MS = 1000 * 60 * 60 * 24 * 7;
 
 function hashPassword(password: string): string {
   const salt = randomBytes(16).toString('hex');
@@ -601,42 +705,100 @@ async function seedDefaultAdmin(): Promise<void> {
 export async function loginAdmin(
   username: string,
   password: string
-): Promise<{ success: boolean; message: string; token?: string; admin?: AdminAccount }> {
+): Promise<{ success: boolean; message: string; token?: string; role?: StaffRole; admin?: AdminAccount }> {
   const name = username.trim();
-  if (!name || !password) {
+  const pass = password.trim();
+  if (!name || !pass) {
     return { success: false, message: '아이디와 비밀번호를 입력해주세요.' };
   }
-  const rows = await query('SELECT * FROM admins WHERE username = ? LIMIT 1', [name]);
-  const row = rows[0];
-  if (!row || !verifyPassword(password, String(row.password_hash))) {
-    return { success: false, message: '아이디 또는 비밀번호가 올바르지 않습니다.' };
+
+  const envOk = secretsEqual(name, expectedAdminUser()) && secretsEqual(pass, expectedAdminPassword());
+  if (envOk) {
+    const now = Date.now();
+    const admin: AdminAccount = {
+      id: 'admin-default',
+      username: expectedAdminUser(),
+      role: 'admin',
+      schoolName: '',
+      createdAt: now,
+      lastLoginAt: now,
+    };
+    try {
+      await run('UPDATE admins SET last_login_at = ? WHERE username = ?', [now, admin.username]);
+    } catch {
+      // Vercel ephemeral sqlite can miss the row; the signed token is enough to stay logged in.
+    }
+    return {
+      success: true,
+      message: '관리자로 로그인되었습니다.',
+      token: signStaffToken({ u: admin.username, role: 'admin' }),
+      role: 'admin',
+      admin,
+    };
   }
 
-  const now = Date.now();
-  const token = randomBytes(32).toString('hex');
-  await run('UPDATE admins SET last_login_at = ? WHERE id = ?', [now, row.id]);
-  await run('DELETE FROM admin_sessions WHERE expires_at < ?', [now]);
-  await run(
-    `INSERT INTO admin_sessions (token_hash, admin_id, created_at, expires_at)
-     VALUES (?, ?, ?, ?)`,
-    [hashToken(token), row.id, now, now + SESSION_MS]
-  );
-
-  return {
-    success: true,
-    message: '관리자로 로그인되었습니다.',
-    token,
-    admin: {
-      id: String(row.id),
-      username: String(row.username),
-      createdAt: Number(row.created_at),
+  const adminRows = await query('SELECT * FROM admins WHERE username = ? LIMIT 1', [name]);
+  const adminRow = adminRows[0];
+  if (adminRow && verifyPassword(pass, String(adminRow.password_hash))) {
+    const now = Date.now();
+    const admin: AdminAccount = {
+      id: String(adminRow.id),
+      username: String(adminRow.username),
+      role: 'admin',
+      schoolName: '',
+      createdAt: Number(adminRow.created_at),
       lastLoginAt: now,
-    },
-  };
+    };
+    await run('UPDATE admins SET last_login_at = ? WHERE username = ?', [now, admin.username]);
+    return {
+      success: true,
+      message: '관리자로 로그인되었습니다.',
+      token: signStaffToken({ u: admin.username, role: 'admin' }),
+      role: 'admin',
+      admin,
+    };
+  }
+
+  const teacherRows = await query('SELECT * FROM teachers WHERE username = ? LIMIT 1', [name]);
+  const teacherRow = teacherRows[0];
+  if (teacherRow && verifyPassword(pass, String(teacherRow.password_hash))) {
+    const now = Date.now();
+    const schoolName = String(teacherRow.school_name);
+    await run('UPDATE teachers SET last_login_at = ? WHERE id = ?', [now, String(teacherRow.id)]);
+    const admin: AdminAccount = {
+      id: String(teacherRow.id),
+      username: String(teacherRow.username),
+      role: 'teacher',
+      schoolName,
+      createdAt: Number(teacherRow.created_at),
+      lastLoginAt: now,
+    };
+    return {
+      success: true,
+      message: `${schoolName} 담임교사로 로그인되었습니다.`,
+      token: signStaffToken({ u: admin.username, role: 'teacher', schoolName }),
+      role: 'teacher',
+      admin,
+    };
+  }
+
+  return { success: false, message: '아이디 또는 비밀번호가 올바르지 않습니다.' };
 }
 
 export async function getAdminByToken(token: string): Promise<AdminAccount | null> {
   if (!token) return null;
+  const signed = readStaffToken(token);
+  if (signed) {
+    return {
+      id: signed.role === 'teacher' ? `teacher:${signed.username}` : 'admin-default',
+      username: signed.username,
+      role: signed.role === 'teacher' ? 'teacher' : 'admin',
+      schoolName: signed.schoolName,
+      createdAt: Date.now(),
+      lastLoginAt: Date.now(),
+    };
+  }
+
   const rows = await query(
     `SELECT a.id, a.username, a.created_at, a.last_login_at
      FROM admin_sessions s
@@ -650,9 +812,63 @@ export async function getAdminByToken(token: string): Promise<AdminAccount | nul
   return {
     id: String(row.id),
     username: String(row.username),
+    role: 'admin',
+    schoolName: '',
     createdAt: Number(row.created_at),
     lastLoginAt: Number(row.last_login_at),
   };
+}
+
+export async function createTeacher(data: {
+  schoolName: string;
+  username: string;
+  password: string;
+}): Promise<{ success: boolean; message: string; teacher?: TeacherAccount }> {
+  const schoolName = expandSchoolName(data.schoolName);
+  const username = data.username.trim();
+  const password = data.password.trim();
+  if (!schoolName) return { success: false, message: '학교명을 입력해주세요.' };
+  if (!username) return { success: false, message: '교사 아이디를 입력해주세요.' };
+  if (username === expectedAdminUser()) {
+    return { success: false, message: '관리자 아이디와 같은 이름은 사용할 수 없습니다.' };
+  }
+  if (password.length < 4) return { success: false, message: '비밀번호는 4자 이상 입력해주세요.' };
+
+  const now = Date.now();
+  try {
+    await run(
+      `INSERT INTO teachers (id, school_name, username, password_hash, created_at, last_login_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [`teacher-${now}`, schoolName, username, hashPassword(password), now, now]
+    );
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      return { success: false, message: '이미 사용 중인 교사 아이디입니다.' };
+    }
+    throw error;
+  }
+
+  return {
+    success: true,
+    message: `${schoolName} 담임교사 계정을 만들었습니다.`,
+    teacher: { id: `teacher-${now}`, schoolName, username, createdAt: now, lastLoginAt: now },
+  };
+}
+
+export async function listTeachers(): Promise<TeacherAccount[]> {
+  const rows = await query('SELECT * FROM teachers ORDER BY school_name, username');
+  return rows.map((row) => ({
+    id: String(row.id),
+    schoolName: String(row.school_name),
+    username: String(row.username),
+    createdAt: Number(row.created_at),
+    lastLoginAt: Number(row.last_login_at),
+  }));
+}
+
+export async function deleteTeacher(id: string): Promise<TeacherAccount[]> {
+  await run('DELETE FROM teachers WHERE id = ?', [id]);
+  return listTeachers();
 }
 
 export async function logoutAdmin(token: string): Promise<void> {
@@ -660,7 +876,32 @@ export async function logoutAdmin(token: string): Promise<void> {
   await run('DELETE FROM admin_sessions WHERE token_hash = ?', [hashToken(token)]);
 }
 
-export async function getAdminOverview(): Promise<AdminOverview> {
+function schoolFilter(alias: string, schoolName?: string): { sql: string; params: unknown[] } {
+  if (!schoolName) return { sql: '', params: [] };
+  return { sql: ` WHERE ${alias}.school_name = ? `, params: [schoolName] };
+}
+
+export async function getAdminOverview(schoolName?: string): Promise<AdminOverview> {
+  if (schoolName) {
+    const students = await query('SELECT COUNT(*) AS count FROM students WHERE school_name = ?', [schoolName]);
+    const sessions = await query(
+      `SELECT COUNT(*) AS count FROM typing_sessions ts
+       JOIN students s ON s.id = ts.student_id
+       WHERE s.school_name = ?`,
+      [schoolName]
+    );
+    const reports = await query(
+      `SELECT COUNT(*) AS count FROM book_reports br
+       JOIN students s ON s.id = br.student_id
+       WHERE s.school_name = ?`,
+      [schoolName]
+    );
+    return {
+      studentCount: Number(students[0]?.count || 0),
+      sessionCount: Number(sessions[0]?.count || 0),
+      reportCount: Number(reports[0]?.count || 0),
+    };
+  }
   const students = await query('SELECT COUNT(*) AS count FROM students');
   const sessions = await query('SELECT COUNT(*) AS count FROM typing_sessions');
   const reports = await query('SELECT COUNT(*) AS count FROM book_reports');
@@ -671,7 +912,8 @@ export async function getAdminOverview(): Promise<AdminOverview> {
   };
 }
 
-export async function listAllStudents(): Promise<AdminStudentRow[]> {
+export async function listAllStudents(schoolName?: string): Promise<AdminStudentRow[]> {
+  const filter = schoolFilter('s', schoolName);
   const rows = await query(
     `SELECT
       s.id, s.school_year, s.school_name, s.grade, s.class_num, s.student_num, s.name,
@@ -682,8 +924,10 @@ export async function listAllStudents(): Promise<AdminStudentRow[]> {
      FROM students s
      LEFT JOIN typing_sessions ts ON ts.student_id = s.id
      LEFT JOIN book_reports br ON br.student_id = s.id
+     ${filter.sql}
      GROUP BY s.id, s.school_year, s.school_name, s.grade, s.class_num, s.student_num, s.name, s.created_at, s.last_login_at
-     ORDER BY s.school_name, s.grade, s.class_num, s.student_num`
+     ORDER BY s.school_name, s.grade, s.class_num, s.student_num`,
+    filter.params
   );
   return rows.map((row) => ({
     ...mapStudent(row),
@@ -697,14 +941,16 @@ export async function deleteStudentAccount(id: string): Promise<void> {
   await run('DELETE FROM students WHERE id = ?', [id]);
 }
 
-export async function listAllSessions(limit = 200): Promise<TypingSessionResult[]> {
+export async function listAllSessions(limit = 200, schoolName?: string): Promise<TypingSessionResult[]> {
+  const filter = schoolFilter('s', schoolName);
   const rows = await query(
     `SELECT ts.*, s.school_year, s.school_name, s.grade, s.class_num, s.student_num, s.name
      FROM typing_sessions ts
      JOIN students s ON s.id = ts.student_id
+     ${filter.sql}
      ORDER BY ts.created_at DESC
      LIMIT ?`,
-    [limit]
+    [...filter.params, limit]
   );
   return rows.map((row) => {
     const session = mapSession(row);
@@ -721,14 +967,16 @@ export async function listAllSessions(limit = 200): Promise<TypingSessionResult[
   });
 }
 
-export async function listAllReports(limit = 200): Promise<BookReport[]> {
+export async function listAllReports(limit = 200, schoolName?: string): Promise<BookReport[]> {
+  const filter = schoolFilter('s', schoolName);
   const rows = await query(
     `SELECT br.*, s.school_year, s.school_name, s.grade, s.class_num, s.student_num, s.name
      FROM book_reports br
      JOIN students s ON s.id = br.student_id
+     ${filter.sql}
      ORDER BY br.created_at DESC
      LIMIT ?`,
-    [limit]
+    [...filter.params, limit]
   );
   return rows.map((row) => {
     const report = mapReport(row);

@@ -121,7 +121,7 @@ export async function apiGetLeaderboard(params: {
   grade: number;
   classNum: number;
   currentStudentId?: string;
-}): Promise<StudentRankRecord[]> {
+}): Promise<{ records: StudentRankRecord[]; classNums: number[] }> {
   const query = new URLSearchParams({
     schoolYear: params.schoolYear,
     schoolName: params.schoolName,
@@ -129,8 +129,10 @@ export async function apiGetLeaderboard(params: {
     classNum: String(params.classNum),
   });
   if (params.currentStudentId) query.set('currentStudentId', params.currentStudentId);
-  const data = await request<{ records: StudentRankRecord[] }>(`/api/leaderboard?${query.toString()}`);
-  return data.records || [];
+  const data = await request<{ records: StudentRankRecord[]; classNums?: number[] }>(
+    `/api/leaderboard?${query.toString()}`
+  );
+  return { records: data.records || [], classNums: data.classNums || [] };
 }
 
 const ADMIN_TOKEN_KEY = 'literary_typing_admin_token';
@@ -157,18 +159,36 @@ async function adminRequest<T>(path: string, init?: RequestInit): Promise<ApiRes
 }
 
 export async function apiAdminLogin(username: string, password: string) {
+  const payload = { username, password };
   try {
-    const data = await request<{ token?: string; admin?: { id: string; username: string } }>('/api/admin/login', {
+    const data = await request<{
+      token?: string;
+      role?: 'admin' | 'teacher';
+      admin?: { id: string; username: string; role?: 'admin' | 'teacher'; schoolName?: string };
+    }>('/api/admin-login', {
       method: 'POST',
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify(payload),
     });
     if (data.token) setAdminToken(data.token);
     return data;
-  } catch (error) {
-    return {
-      success: false,
-      message: error instanceof Error ? error.message : '관리자 로그인에 실패했습니다.',
-    };
+  } catch {
+    try {
+      const data = await request<{
+        token?: string;
+        role?: 'admin' | 'teacher';
+        admin?: { id: string; username: string; role?: 'admin' | 'teacher'; schoolName?: string };
+      }>('/api/admin/login', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      if (data.token) setAdminToken(data.token);
+      return data;
+    } catch (error) {
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : '관리자 로그인에 실패했습니다.',
+      };
+    }
   }
 }
 
@@ -181,7 +201,15 @@ export async function apiAdminLogout(): Promise<void> {
 }
 
 export async function apiAdminMe() {
-  return adminRequest<{ admin: { id: string; username: string } }>('/api/admin/me');
+  try {
+    return await adminRequest<{
+      admin: { id: string; username: string; role?: 'admin' | 'teacher'; schoolName?: string };
+    }>('/api/admin-me');
+  } catch {
+    return adminRequest<{
+      admin: { id: string; username: string; role?: 'admin' | 'teacher'; schoolName?: string };
+    }>('/api/admin/me');
+  }
 }
 
 export async function apiAdminOverview() {
@@ -229,4 +257,27 @@ export async function apiAdminDeleteReport(id: string, studentId: string) {
     { method: 'DELETE' }
   );
   return data.reports || [];
+}
+
+export async function apiAdminTeachers() {
+  const data = await adminRequest<{
+    teachers: Array<{ id: string; schoolName: string; username: string; createdAt: number; lastLoginAt: number }>;
+  }>('/api/admin/teachers');
+  return data.teachers || [];
+}
+
+export async function apiAdminCreateTeacher(payload: { schoolName: string; username: string; password: string }) {
+  return adminRequest<{
+    teachers?: Array<{ id: string; schoolName: string; username: string; createdAt: number; lastLoginAt: number }>;
+  }>('/api/admin/teachers', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function apiAdminDeleteTeacher(id: string) {
+  const data = await adminRequest<{
+    teachers: Array<{ id: string; schoolName: string; username: string; createdAt: number; lastLoginAt: number }>;
+  }>(`/api/admin/teachers/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  return data.teachers || [];
 }

@@ -739,7 +739,7 @@ export function getClassLeaderboard(
       a.schoolYear === profile.schoolYear &&
       a.schoolName === profile.schoolName &&
       a.grade === profile.grade &&
-      a.classNum === activeClassNum
+      (activeClassNum <= 0 || a.classNum === activeClassNum)
   );
 
   const hasUserSession = Boolean(profile.name && profile.name.trim()) || userHistory.length > 0;

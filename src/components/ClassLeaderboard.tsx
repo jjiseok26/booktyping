@@ -44,6 +44,7 @@ export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
   const [sortMode, setSortMode] = useState<RankSortMode>('effort');
   const [showSamplePeers, setShowSamplePeers] = useState<boolean>(false);
   const [dbRecords, setDbRecords] = useState<StudentRankRecord[] | null>(null);
+  const [classNums, setClassNums] = useState<number[]>([currentProfile.classNum]);
 
   useEffect(() => {
     if (!currentProfile.schoolName) {
@@ -58,8 +59,15 @@ export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
       classNum: selectedClassNum,
       currentStudentId: currentAccount?.id || currentProfile.accountId,
     })
-      .then((records) => {
-        if (!cancelled) setDbRecords(records);
+      .then((data) => {
+        if (cancelled) return;
+        setDbRecords(data.records);
+        const nums = Array.from(
+          new Set([currentProfile.classNum, ...data.classNums, ...data.records.map((record) => record.profile.classNum)])
+        )
+          .filter((value) => value > 0)
+          .sort((a, b) => a - b);
+        setClassNums(nums.length > 0 ? nums : [currentProfile.classNum]);
       })
       .catch(() => {
         if (!cancelled) setDbRecords(null);
@@ -122,7 +130,10 @@ export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
   const maxEffortScore = Math.max(...sortedRecords.map((r) => r.effortScore), 1000);
 
   const topThree = sortedRecords.slice(0, 3);
-  const remainingStudents = sortedRecords.slice(3);
+  const classChips = useMemo(() => {
+    const nums = classNums.length > 0 ? classNums : [currentProfile.classNum];
+    return [0, ...nums.filter((value, index) => nums.indexOf(value) === index)];
+  }, [classNums, currentProfile.classNum]);
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
@@ -143,7 +154,7 @@ export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
                 {currentProfile.schoolName}
               </span>
               <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-amber-400/10 text-amber-200 border border-amber-400/20 text-xs font-medium">
-                {currentProfile.grade}학년 {selectedClassNum}반
+                {currentProfile.grade}학년 {selectedClassNum > 0 ? `${selectedClassNum}반` : '전체'}
               </span>
               {currentAccount ? (
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-medium">
@@ -164,7 +175,7 @@ export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
             </div>
 
             <h1 className="text-2xl sm:text-3xl font-bold font-batang tracking-tight text-stone-100 flex items-center gap-3">
-              <span>{currentProfile.schoolName} {currentProfile.grade}학년 {selectedClassNum}반 순위표</span>
+              <span>{currentProfile.schoolName} {currentProfile.grade}학년 {selectedClassNum > 0 ? `${selectedClassNum}반` : '전체'} 순위표</span>
               <Trophy className="w-6 h-6 text-amber-400 shrink-0" />
             </h1>
             <p className="mt-1.5 text-xs sm:text-sm text-stone-400">
@@ -205,14 +216,14 @@ export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
           </div>
         </div>
 
-        {/* Class Selection Chips (1반 ~ 8반) */}
+        {/* Class Selection Chips */}
         <div className="mt-6 pt-5 border-t border-stone-800 flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs text-stone-400 mr-1 flex items-center gap-1">
               <Users className="w-3.5 h-3.5 text-stone-400" />
               <span>반 둘러보기:</span>
             </span>
-            {[1, 2, 3, 4, 5, 6, 7, 8].map((cNum) => (
+            {classChips.map((cNum) => (
               <button
                 key={cNum}
                 onClick={() => setSelectedClassNum(cNum)}
@@ -222,7 +233,9 @@ export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
                     : 'bg-stone-800/80 text-stone-400 hover:text-stone-200 hover:bg-stone-800 border border-stone-700/60'
                 }`}
               >
-                {cNum}반 {cNum === currentProfile.classNum ? '(우리반)' : ''}
+                {cNum === 0
+                  ? '학년 전체'
+                  : `${cNum}반${cNum === currentProfile.classNum ? ' (우리반)' : ''}`}
               </button>
             ))}
           </div>
@@ -405,7 +418,7 @@ export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
             <Trophy className="w-7 h-7" />
           </div>
           <h3 className="text-base font-bold text-stone-900 mb-1">
-            {currentProfile.schoolName || '우리 학교'} {currentProfile.grade}학년 {selectedClassNum}반의 첫 기록을 남겨보세요!
+            {currentProfile.schoolName || '우리 학교'} {currentProfile.grade}학년 {selectedClassNum > 0 ? `${selectedClassNum}반` : '전체'}의 첫 기록을 남겨보세요!
           </h3>
           <p className="text-xs text-stone-500 leading-relaxed mb-6">
             아직 필사를 완료한 학생이나 등록된 학급 계정이 없습니다. 학생 본인 성명으로 가입하거나 타자 연습을 완료하면 순위표에 실시간으로 반영됩니다.
@@ -603,7 +616,7 @@ export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
       </div>
 
       {/* Full Leaderboard Table */}
-      <div className="bg-white border border-stone-200/90 rounded-3xl shadow-sm overflow-hidden mb-12">
+      <div className="bg-white border border-stone-200/90 rounded-3xl shadow-sm overflow-hidden mb-28">
         <div className="px-6 py-4 border-b border-stone-100 flex items-center justify-between bg-stone-50/50">
           <div className="flex items-center gap-2">
             <Trophy className="w-4 h-4 text-amber-500" />
@@ -676,7 +689,10 @@ export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
                     {/* Student Info */}
                     <td className="py-3.5 px-4">
                       <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs text-stone-400 w-7">{record.profile.studentNum}번</span>
+                        <span className="font-mono text-xs text-stone-400 w-12">
+                          {selectedClassNum === 0 ? `${record.profile.classNum}반 ` : ''}
+                          {record.profile.studentNum}번
+                        </span>
                         <span className="font-medium text-stone-900">{record.profile.name}</span>
                         {record.isCurrentUser && (
                           <span className="px-1.5 py-0.5 rounded bg-amber-500 text-stone-950 font-bold text-[10px]">

@@ -4,6 +4,7 @@ import { StudentProfile } from '../types';
 import { getRecentStudentAccounts } from '../utils/storage';
 import { apiListSchools } from '../utils/dbClient';
 import { SchoolNameField } from './SchoolNameField';
+import { expandSchoolName } from '../utils/schoolName';
 
 interface StudentProfileModalProps {
   isOpen: boolean;
@@ -42,7 +43,7 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const trimmedSchool = schoolName.trim();
+    const trimmedSchool = expandSchoolName(schoolName);
     const trimmedName = name.trim();
 
     if (!trimmedSchool) {

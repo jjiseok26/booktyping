@@ -1,6 +1,1 @@
-export { default } from './_app.mjs';
-
-export const config = {
-  runtime: 'nodejs',
-  maxDuration: 10,
-};
+export { default, config } from './handler.js';

@@ -17,6 +17,7 @@ import { playKeySound, playCompletionSound } from '../utils/sound';
 import { calculateSessionEffortPoints } from '../utils/storage';
 import { getTypingSentences } from '../data/books';
 import { SessionCompletionModal } from './SessionCompletionModal';
+import { saveParagraphNote } from '../utils/paragraphNotes';
 
 interface TypingAreaProps {
   book: BookExcerpt;
@@ -47,6 +48,8 @@ export const TypingArea: React.FC<TypingAreaProps> = ({
   const [userInput, setUserInput] = useState('');
   const [startTime, setStartTime] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [paragraphPrompt, setParagraphPrompt] = useState<{ from: number; to: number } | null>(null);
+  const [paragraphDraft, setParagraphDraft] = useState('');
 
   // Real-time analysis metrics
   const [realtimeCpm, setRealtimeCpm] = useState(0);
@@ -216,6 +219,11 @@ export const TypingArea: React.FC<TypingAreaProps> = ({
       setSentenceIndex((prev) => prev + 1);
       setUserInput('');
       setErrorCount(0);
+      const nextIndex = sentenceIndex + 1;
+      if (nextIndex % 10 === 0 && nextIndex < activeSentences.length) {
+        setParagraphDraft('');
+        setParagraphPrompt({ from: nextIndex - 9, to: nextIndex });
+      }
     }
   }, [
     accumulatedChars,
@@ -653,6 +661,57 @@ export const TypingArea: React.FC<TypingAreaProps> = ({
           </div>
         )}
       </div>
+
+      {paragraphPrompt && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-stone-950/70 backdrop-blur-sm">
+          <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-stone-200 p-5 text-stone-800">
+            <p className="text-xs font-mono text-amber-700 mb-1">
+              {paragraphPrompt.from}~{paragraphPrompt.to}문장 · 한 문단 필사
+            </p>
+            <h3 className="text-lg font-bold mb-1">지금 읽은 부분, 한 줄로 남겨 볼까요?</h3>
+            <p className="text-xs text-stone-500 mb-3">
+              느낌이나 짧은 독후 내용을 적으면 책을 다 읽고 쓰는 보고서에 함께 실립니다. 건너뛰어도 됩니다.
+            </p>
+            <textarea
+              autoFocus
+              rows={3}
+              value={paragraphDraft}
+              onChange={(e) => setParagraphDraft(e.target.value)}
+              placeholder="예: 주인공의 마음이 답답하게 느껴졌다."
+              className="w-full rounded-xl border border-stone-300 px-3 py-2.5 text-sm focus:outline-none focus:border-amber-500"
+            />
+            <div className="mt-3 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setParagraphPrompt(null);
+                  setParagraphDraft('');
+                  inputRef.current?.focus();
+                }}
+                className="px-3 py-2 rounded-xl text-xs text-stone-500 hover:bg-stone-100"
+              >
+                건너뛰기
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  saveParagraphNote(book.id, {
+                    from: paragraphPrompt.from,
+                    to: paragraphPrompt.to,
+                    note: paragraphDraft.trim(),
+                  });
+                  setParagraphPrompt(null);
+                  setParagraphDraft('');
+                  inputRef.current?.focus();
+                }}
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-stone-950"
+              >
+                남기고 계속하기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Completion Modal */}
       {completedResult && (

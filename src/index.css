@@ -52,16 +52,48 @@
     padding: 0 !important;
   }
 
+  body * {
+    visibility: hidden;
+  }
+
+  .print-paper-stage,
+  .print-paper-stage *,
+  .print-page-sheet,
+  .print-page-sheet * {
+    visibility: visible;
+  }
+
   .no-print,
   header,
   footer,
-  nav,
-  #modal-backdrop-overlay {
+  nav {
     display: none !important;
+    visibility: hidden !important;
   }
 
-  .print-only {
+  #modal-backdrop-overlay {
     display: block !important;
+    position: static !important;
+    inset: auto !important;
+    background: #ffffff !important;
+    backdrop-filter: none !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+
+  .print-paper-stage {
+    display: block !important;
+    background: #ffffff !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    min-height: auto !important;
+  }
+
+  .print-paper-stage > .print-paper-page {
+    box-shadow: none !important;
+    max-width: 100% !important;
+    min-height: auto !important;
+    width: 100% !important;
   }
 
   .print-page-sheet {

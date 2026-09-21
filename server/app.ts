@@ -1,29 +1,77 @@
 import express from 'express';
 import {
   clearSessions,
+  createTeacher,
   deleteReport,
   deleteSession,
   deleteStudentAccount,
+  deleteTeacher,
   getAdminByToken,
   getAdminOverview,
   getLeaderboard,
   getStudentById,
+  listClassNumbers,
   listSchoolNames,
   listAllReports,
   listAllSessions,
   listAllStudents,
   listReports,
   listSessions,
+  listTeachers,
   loginAdmin,
   loginStudent,
   logoutAdmin,
   registerStudent,
   saveReport,
   saveSession,
+  type AdminAccount,
 } from './db';
 
 const app = express();
-app.use(express.json({ limit: '1mb' }));
+
+function isParsedObject(body: unknown): body is Record<string, unknown> {
+  return Boolean(body && typeof body === 'object' && !Buffer.isBuffer(body) && Object.keys(body).length > 0);
+}
+
+function parseJsonBody(
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
+): void {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+    next();
+    return;
+  }
+
+  if (isParsedObject(req.body)) {
+    next();
+    return;
+  }
+
+  if (Buffer.isBuffer(req.body) || typeof req.body === 'string') {
+    try {
+      const raw = String(req.body || '').trim();
+      req.body = raw ? JSON.parse(raw) : {};
+      next();
+    } catch {
+      res.status(400).json({ success: false, message: '요청 본문을 읽지 못했습니다.' });
+    }
+    return;
+  }
+
+  express.json({ limit: '1mb' })(req, res, next);
+}
+
+app.use((req, _res, next) => {
+  const url = req.url || '';
+  const pathOnly = url.split('?')[0];
+  if (pathOnly === '/admin' || pathOnly.startsWith('/admin/')) {
+    req.url = `/api${url.startsWith('/') ? url : `/${url}`}`;
+  }
+  next();
+});
+
+app.use(parseJsonBody);
 
 function asyncRoute(
   handler: (req: express.Request, res: express.Response) => Promise<void>
@@ -37,13 +85,27 @@ function readToken(req: express.Request): string {
   return String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
 }
 
-async function requireAdmin(req: express.Request, res: express.Response) {
-  const admin = await getAdminByToken(readToken(req));
-  if (!admin) {
+async function requireStaff(req: express.Request, res: express.Response) {
+  const staff = await getAdminByToken(readToken(req));
+  if (!staff) {
     res.status(401).json({ success: false, message: '관리자 로그인이 필요합니다.' });
     return null;
   }
-  return admin;
+  return staff;
+}
+
+async function requireAdminOnly(req: express.Request, res: express.Response) {
+  const staff = await requireStaff(req, res);
+  if (!staff) return null;
+  if (staff.role !== 'admin') {
+    res.status(403).json({ success: false, message: '관리자만 할 수 있습니다.' });
+    return null;
+  }
+  return staff;
+}
+
+function schoolScope(staff: AdminAccount): string | undefined {
+  return staff.role === 'teacher' ? staff.schoolName : undefined;
 }
 
 app.get(
@@ -187,23 +249,32 @@ app.get(
     const grade = Number(req.query.grade);
     const classNum = Number(req.query.classNum);
     const currentStudentId = String(req.query.currentStudentId || '');
-    if (!schoolYear || !schoolName || !grade || !classNum) {
-      res.status(400).json({ success: false, message: '학년도, 학교명, 학년, 반이 필요합니다.' });
+    if (!schoolYear || !schoolName || !grade) {
+      res.status(400).json({ success: false, message: '학년도, 학교명, 학년이 필요합니다.' });
       return;
     }
     const records = await getLeaderboard({
       schoolYear,
       schoolName,
       grade,
-      classNum,
+      classNum: Number.isFinite(classNum) ? classNum : 0,
       currentStudentId,
     });
-    res.json({ success: true, records });
+    const classNums = await listClassNumbers({ schoolYear, schoolName, grade });
+    res.json({ success: true, records, classNums });
   })
 );
 
 app.post(
   '/api/admin/login',
+  asyncRoute(async (req, res) => {
+    const result = await loginAdmin(String(req.body?.username || ''), String(req.body?.password || ''));
+    res.status(result.success ? 200 : 401).json(result);
+  })
+);
+
+app.post(
+  '/api/admin-login',
   asyncRoute(async (req, res) => {
     const result = await loginAdmin(String(req.body?.username || ''), String(req.body?.password || ''));
     res.status(result.success ? 200 : 401).json(result);
@@ -221,35 +292,44 @@ app.post(
 app.get(
   '/api/admin/me',
   asyncRoute(async (req, res) => {
-    const admin = await requireAdmin(req, res);
-    if (!admin) return;
-    res.json({ success: true, admin });
+    const staff = await requireStaff(req, res);
+    if (!staff) return;
+    res.json({ success: true, admin: staff });
+  })
+);
+
+app.get(
+  '/api/admin-me',
+  asyncRoute(async (req, res) => {
+    const staff = await requireStaff(req, res);
+    if (!staff) return;
+    res.json({ success: true, admin: staff });
   })
 );
 
 app.get(
   '/api/admin/overview',
   asyncRoute(async (req, res) => {
-    const admin = await requireAdmin(req, res);
-    if (!admin) return;
-    res.json({ success: true, overview: await getAdminOverview() });
+    const staff = await requireStaff(req, res);
+    if (!staff) return;
+    res.json({ success: true, overview: await getAdminOverview(schoolScope(staff)) });
   })
 );
 
 app.get(
   '/api/admin/students',
   asyncRoute(async (req, res) => {
-    const admin = await requireAdmin(req, res);
-    if (!admin) return;
-    res.json({ success: true, students: await listAllStudents() });
+    const staff = await requireStaff(req, res);
+    if (!staff) return;
+    res.json({ success: true, students: await listAllStudents(schoolScope(staff)) });
   })
 );
 
 app.delete(
   '/api/admin/students/:id',
   asyncRoute(async (req, res) => {
-    const admin = await requireAdmin(req, res);
-    if (!admin) return;
+    const staff = await requireAdminOnly(req, res);
+    if (!staff) return;
     await deleteStudentAccount(req.params.id);
     res.json({ success: true, students: await listAllStudents() });
   })
@@ -258,17 +338,17 @@ app.delete(
 app.get(
   '/api/admin/sessions',
   asyncRoute(async (req, res) => {
-    const admin = await requireAdmin(req, res);
-    if (!admin) return;
-    res.json({ success: true, sessions: await listAllSessions() });
+    const staff = await requireStaff(req, res);
+    if (!staff) return;
+    res.json({ success: true, sessions: await listAllSessions(200, schoolScope(staff)) });
   })
 );
 
 app.delete(
   '/api/admin/sessions/:id',
   asyncRoute(async (req, res) => {
-    const admin = await requireAdmin(req, res);
-    if (!admin) return;
+    const staff = await requireAdminOnly(req, res);
+    if (!staff) return;
     const studentId = String(req.query.studentId || '');
     if (!studentId) {
       res.status(400).json({ success: false, message: 'studentId가 필요합니다.' });
@@ -282,17 +362,17 @@ app.delete(
 app.get(
   '/api/admin/reports',
   asyncRoute(async (req, res) => {
-    const admin = await requireAdmin(req, res);
-    if (!admin) return;
-    res.json({ success: true, reports: await listAllReports() });
+    const staff = await requireStaff(req, res);
+    if (!staff) return;
+    res.json({ success: true, reports: await listAllReports(200, schoolScope(staff)) });
   })
 );
 
 app.delete(
   '/api/admin/reports/:id',
   asyncRoute(async (req, res) => {
-    const admin = await requireAdmin(req, res);
-    if (!admin) return;
+    const staff = await requireAdminOnly(req, res);
+    if (!staff) return;
     const studentId = String(req.query.studentId || '');
     if (!studentId) {
       res.status(400).json({ success: false, message: 'studentId가 필요합니다.' });
@@ -300,6 +380,41 @@ app.delete(
     }
     await deleteReport(req.params.id, studentId);
     res.json({ success: true, reports: await listAllReports() });
+  })
+);
+
+app.get(
+  '/api/admin/teachers',
+  asyncRoute(async (req, res) => {
+    const staff = await requireAdminOnly(req, res);
+    if (!staff) return;
+    res.json({ success: true, teachers: await listTeachers() });
+  })
+);
+
+app.post(
+  '/api/admin/teachers',
+  asyncRoute(async (req, res) => {
+    const staff = await requireAdminOnly(req, res);
+    if (!staff) return;
+    const result = await createTeacher({
+      schoolName: String(req.body?.schoolName || ''),
+      username: String(req.body?.username || ''),
+      password: String(req.body?.password || ''),
+    });
+    res.status(result.success ? 200 : 400).json({
+      ...result,
+      teachers: result.success ? await listTeachers() : undefined,
+    });
+  })
+);
+
+app.delete(
+  '/api/admin/teachers/:id',
+  asyncRoute(async (req, res) => {
+    const staff = await requireAdminOnly(req, res);
+    if (!staff) return;
+    res.json({ success: true, teachers: await deleteTeacher(req.params.id) });
   })
 );
 

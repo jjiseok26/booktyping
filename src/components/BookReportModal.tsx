@@ -8,6 +8,7 @@ import {
 import { BookReportPrintSheet } from './BookReportPrintSheet';
 import { saveStoredBookReport, getCurrentStudentAccount } from '../utils/storage';
 import { apiSaveReport } from '../utils/dbClient';
+import { getParagraphNotes } from '../utils/paragraphNotes';
 import {
   BookOpen,
   Printer,
@@ -57,6 +58,7 @@ export const BookReportModal: React.FC<BookReportModalProps> = ({
   const [quoteReason, setQuoteReason] = useState('');
   const [content, setContent] = useState('');
   const [personalTakeaway, setPersonalTakeaway] = useState('');
+  const [paragraphNotes, setParagraphNotes] = useState<NonNullable<BookReport['paragraphNotes']>>([]);
 
   // Initialize data on open
   useEffect(() => {
@@ -69,6 +71,7 @@ export const BookReportModal: React.FC<BookReportModalProps> = ({
       setQuoteReason(initialReport.quoteReason || '');
       setContent(initialReport.content || '');
       setPersonalTakeaway(initialReport.personalTakeaway || '');
+      setParagraphNotes(initialReport.paragraphNotes || getParagraphNotes(initialReport.excerptId));
     } else if (book) {
       // Pre-fill with reasonable starting points
       const defaultTitle = `《${book.bookTitle}》을 필사하며 느낀 우리말의 울림과 생각`;
@@ -81,6 +84,8 @@ export const BookReportModal: React.FC<BookReportModalProps> = ({
       const sampleQuote = availableSentences.length > 0 ? availableSentences[0] : '';
       setMemorableQuote(sampleQuote);
       setQuoteReason('');
+      const notes = getParagraphNotes(book.id);
+      setParagraphNotes(notes);
       setContent('');
       setPersonalTakeaway('');
     }
@@ -115,6 +120,7 @@ export const BookReportModal: React.FC<BookReportModalProps> = ({
     quoteReason: quoteReason.trim(),
     content: content.trim(),
     personalTakeaway: personalTakeaway.trim(),
+    paragraphNotes: paragraphNotes.filter((item) => item.note.trim()),
   };
 
   const persistReport = async (report: BookReport) => {
@@ -387,6 +393,32 @@ export const BookReportModal: React.FC<BookReportModalProps> = ({
                 />
               </div>
 
+              <div>
+                <label className="block text-xs font-bold text-stone-300 mb-1.5">필사 중 남긴 한 줄 감상</label>
+                {paragraphNotes.length === 0 ? (
+                  <p className="text-[11px] text-stone-500 bg-stone-900/60 border border-stone-800 rounded-xl px-3 py-2">
+                    긴 작품을 10문장(한 문단)씩 필사하면 짧은 느낌을 남길 수 있고, 그 내용이 이 보고서에 실립니다.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {paragraphNotes.map((item, index) => (
+                      <label key={`${item.from}-${item.to}`} className="block text-[11px] text-stone-400">
+                        {item.from}~{item.to}문장
+                        <input
+                          value={item.note}
+                          onChange={(e) => {
+                            const next = [...paragraphNotes];
+                            next[index] = { ...item, note: e.target.value };
+                            setParagraphNotes(next);
+                          }}
+                          className="mt-1 w-full bg-stone-900 border border-stone-700 rounded-xl px-3 py-2 text-sm text-stone-200"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               {/* Form Input: Main Content & Writing Helper */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
@@ -504,8 +536,10 @@ export const BookReportModal: React.FC<BookReportModalProps> = ({
               </div>
 
               {/* Printable sheet element */}
-              <div className="bg-stone-700/20 p-2 sm:p-6 rounded-2xl flex justify-center">
-                <BookReportPrintSheet report={currentReportObject} />
+              <div className="print-paper-stage bg-[#c4bfb6] p-4 sm:p-10 rounded-2xl flex justify-center min-h-[70vh]">
+                <div className="print-paper-page w-full max-w-[210mm] min-h-[297mm] bg-white shadow-[0_12px_40px_rgba(0,0,0,0.28)]">
+                  <BookReportPrintSheet report={currentReportObject} />
+                </div>
               </div>
             </div>
           )}

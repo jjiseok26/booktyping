@@ -115,6 +115,26 @@ export const BookReportPrintSheet: React.FC<BookReportPrintSheetProps> = ({ repo
         )}
       </div>
 
+      {(report.paragraphNotes || []).filter((item) => item.note.trim()).length > 0 && (
+        <div className="border border-stone-800 mb-4">
+          <div className="bg-stone-100 px-3 py-1.5 border-b border-stone-800 font-sans-kr font-bold text-xs text-stone-800">
+            필사 중 한 줄 감상
+          </div>
+          <div className="p-3 text-sm text-stone-900 leading-relaxed font-batang space-y-2">
+            {(report.paragraphNotes || [])
+              .filter((item) => item.note.trim())
+              .map((item) => (
+                <p key={`${item.from}-${item.to}`}>
+                  <span className="font-sans-kr text-xs text-stone-500 mr-1">
+                    {item.from}~{item.to}문장
+                  </span>
+                  {item.note.trim()}
+                </p>
+              ))}
+          </div>
+        </div>
+      )}
+
       {/* Main Reading Reflection / Impression */}
       <div className="border border-stone-800 mb-4">
         <div className="bg-stone-100 px-3 py-1.5 border-b border-stone-800 font-sans-kr font-bold text-xs text-stone-800 flex items-center justify-between">
