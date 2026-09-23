@@ -6,7 +6,6 @@ import {
   FileText,
   ArrowLeft,
   Trash2,
-  Search,
   Lock,
   LayoutDashboard,
   UserPlus,
@@ -84,6 +83,32 @@ function sessionRecordKey(session: TypingSessionResult): string {
   return `${session.id}\t${session.studentProfile?.accountId || ''}`;
 }
 
+function parseFilterNum(value: string): number {
+  const n = Number(value.trim());
+  return Number.isInteger(n) && n > 0 ? n : 0;
+}
+
+function classLabel(person?: { grade?: number; classNum?: number; studentNum?: number } | null): string {
+  if (!person?.grade) return '-';
+  return `${person.grade}학년 ${person.classNum}반 ${person.studentNum}번`;
+}
+
+function matchesRoster(
+  person: { name?: string; grade?: number; classNum?: number; studentNum?: number } | undefined,
+  filters: { grade: string; classNum: string; studentNum: string; text: string },
+  extraText = ''
+): boolean {
+  const grade = parseFilterNum(filters.grade);
+  const classNum = parseFilterNum(filters.classNum);
+  const studentNum = parseFilterNum(filters.studentNum);
+  if (grade && person?.grade !== grade) return false;
+  if (classNum && person?.classNum !== classNum) return false;
+  if (studentNum && person?.studentNum !== studentNum) return false;
+  const q = filters.text.trim();
+  if (!q) return true;
+  return `${person?.name || ''} ${classLabel(person)} ${extraText}`.includes(q);
+}
+
 export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin', onBrowseStudentView, onStaffLogout }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -103,6 +128,9 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
   const [submitting, setSubmitting] = useState(false);
   const [tab, setTab] = useState<AdminTab>('overview');
   const [query, setQuery] = useState('');
+  const [filterGrade, setFilterGrade] = useState('');
+  const [filterClassNum, setFilterClassNum] = useState('');
+  const [filterStudentNum, setFilterStudentNum] = useState('');
   const [overview, setOverview] = useState({ studentCount: 0, sessionCount: 0, reportCount: 0 });
   const [students, setStudents] = useState<AdminStudent[]>([]);
   const [sessions, setSessions] = useState<TypingSessionResult[]>([]);
@@ -404,29 +432,38 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
     [isAdmin, staffSchool, reports]
   );
 
-  const filteredStudents = useMemo(() => {
-    const q = query.trim();
-    if (!q) return scopedStudents;
-    return scopedStudents.filter((student) =>
-      `${student.schoolName} ${student.grade} ${student.classNum} ${student.studentNum} ${student.name}`.includes(q)
-    );
-  }, [scopedStudents, query]);
+  const rosterFilters = { grade: filterGrade, classNum: filterClassNum, studentNum: filterStudentNum, text: query };
+  const hasRosterFilter = Boolean(
+    filterGrade.trim() || filterClassNum.trim() || filterStudentNum.trim() || query.trim()
+  );
 
-  const filteredSessions = useMemo(() => {
-    const q = query.trim();
-    if (!q) return scopedSessions;
-    return scopedSessions.filter((session) =>
-      `${session.studentProfile?.name} ${session.bookTitle} ${session.excerptTitle}`.includes(q)
-    );
-  }, [scopedSessions, query]);
+  const filteredStudents = useMemo(
+    () => scopedStudents.filter((student) => matchesRoster(student, rosterFilters, student.schoolName)),
+    [scopedStudents, filterGrade, filterClassNum, filterStudentNum, query]
+  );
 
-  const filteredReports = useMemo(() => {
-    const q = query.trim();
-    if (!q) return scopedReports;
-    return scopedReports.filter((report) =>
-      `${report.studentProfile?.name} ${report.bookTitle} ${report.title}`.includes(q)
-    );
-  }, [scopedReports, query]);
+  const filteredSessions = useMemo(
+    () =>
+      scopedSessions.filter((session) =>
+        matchesRoster(session.studentProfile, rosterFilters, `${session.bookTitle} ${session.excerptTitle}`)
+      ),
+    [scopedSessions, filterGrade, filterClassNum, filterStudentNum, query]
+  );
+
+  const filteredReports = useMemo(
+    () =>
+      scopedReports.filter((report) =>
+        matchesRoster(report.studentProfile, rosterFilters, `${report.bookTitle} ${report.title}`)
+      ),
+    [scopedReports, filterGrade, filterClassNum, filterStudentNum, query]
+  );
+
+  const clearRosterFilters = () => {
+    setQuery('');
+    setFilterGrade('');
+    setFilterClassNum('');
+    setFilterStudentNum('');
+  };
 
   if (loading) {
     return (
@@ -654,9 +691,9 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-5">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <StatCard icon={<Users className="w-4 h-4" />} label={isAdmin ? '등록 학생' : `${staffSchool} 학생`} value={overview.studentCount} />
-          <StatCard icon={<Keyboard className="w-4 h-4" />} label="필사 기록" value={overview.sessionCount} />
-          <StatCard icon={<FileText className="w-4 h-4" />} label="독후감" value={overview.reportCount} />
+          <StatCard icon={<Users className="w-4 h-4" />} label={isAdmin ? '등록 학생' : `${staffSchool} 학생`} value={overview.studentCount} onClick={() => setTab('students')} />
+          <StatCard icon={<Keyboard className="w-4 h-4" />} label="필사 기록" value={overview.sessionCount} onClick={() => setTab('sessions')} />
+          <StatCard icon={<FileText className="w-4 h-4" />} label="독후감" value={overview.reportCount} onClick={() => setTab('reports')} />
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -672,7 +709,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
             <button
               key={id}
               onClick={() => setTab(id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border ${
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm border ${
                 tab === id
                   ? 'bg-amber-500 text-stone-950 border-amber-500 font-semibold'
                   : 'bg-white text-stone-600 border-stone-200 hover:border-stone-300'
@@ -682,33 +719,102 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
               {label}
             </button>
           ))}
-          {tab !== 'overview' && (
-            <div className="relative ml-auto">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="검색"
-                className="pl-9 pr-3 py-1.5 rounded-lg border border-stone-200 text-sm bg-white w-56"
-              />
-            </div>
-          )}
         </div>
 
+        {(tab === 'students' || tab === 'sessions' || tab === 'reports') && (
+          <div className="bg-white border border-stone-200 rounded-2xl p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-semibold text-stone-800">
+                {tab === 'sessions' ? '필사 기록 조회' : tab === 'reports' ? '독후감 조회' : '학생 조회'}
+              </p>
+              <p className="text-xs text-stone-500">
+                {tab === 'students'
+                  ? `${filteredStudents.length}명`
+                  : tab === 'sessions'
+                    ? `${filteredSessions.length}건`
+                    : `${filteredReports.length}건`}
+                {hasRosterFilter ? ' · 조건 적용됨' : ''}
+              </p>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 items-end">
+              <label className="block text-[11px] text-stone-500">
+                학년
+                <input
+                  value={filterGrade}
+                  onChange={(e) => setFilterGrade(e.target.value.replace(/[^\d]/g, ''))}
+                  placeholder="예: 2"
+                  inputMode="numeric"
+                  className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm bg-white"
+                />
+              </label>
+              <label className="block text-[11px] text-stone-500">
+                반
+                <input
+                  value={filterClassNum}
+                  onChange={(e) => setFilterClassNum(e.target.value.replace(/[^\d]/g, ''))}
+                  placeholder="예: 3"
+                  inputMode="numeric"
+                  className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm bg-white"
+                />
+              </label>
+              <label className="block text-[11px] text-stone-500">
+                번호
+                <input
+                  value={filterStudentNum}
+                  onChange={(e) => setFilterStudentNum(e.target.value.replace(/[^\d]/g, ''))}
+                  placeholder="예: 15"
+                  inputMode="numeric"
+                  className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm bg-white"
+                />
+              </label>
+              <label className="block text-[11px] text-stone-500 col-span-2">
+                {tab === 'sessions' ? '학생 이름 또는 작품' : tab === 'reports' ? '학생 이름 또는 제목' : '학생 이름'}
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder={tab === 'sessions' ? '이름이나 작품명' : '이름'}
+                  className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm bg-white"
+                />
+              </label>
+              <button
+                type="button"
+                disabled={!hasRosterFilter}
+                onClick={clearRosterFilters}
+                className="px-3 py-2 rounded-lg text-xs border border-stone-200 bg-stone-50 text-stone-600 disabled:opacity-40"
+              >
+                조건 지우기
+              </button>
+            </div>
+          </div>
+        )}
+
         {tab === 'overview' && (
-          <section className="bg-white border border-stone-200 rounded-2xl p-5 text-sm text-stone-600 leading-relaxed">
-            학급 학생 계정, 필사 세션, 독후감을 한곳에서 확인합니다.
-            {staffRole === 'admin'
-              ? ' 담임교사와 학교 최고관리자 아이디를 만들 수 있습니다. 최고관리자는 해당 학교 학생의 반·번호·성명(로그인 암호)을 수정하거나 삭제할 수 있습니다.'
-              : staffRole === 'school_admin'
-                ? ` ${staffSchool} 학생의 반·번호·성명(로그인 암호)을 수정하거나 삭제할 수 있습니다.`
-                : ` ${staffSchool} 담당 학급 학생들의 필사·독후 활동을 조회할 수 있습니다.`}
+          <section className="bg-white border border-stone-200 rounded-2xl p-5 space-y-4">
+            <p className="text-sm text-stone-600 leading-relaxed">
+              학년·반·번호 또는 이름으로 학생을 찾은 뒤, 필사 기록과 독후감을 확인할 수 있습니다.
+              {staffRole === 'admin'
+                ? ' 담임교사와 학교 최고관리자 아이디를 만들 수 있습니다.'
+                : staffRole === 'school_admin'
+                  ? ` ${staffSchool} 학생의 반·번호·성명(로그인 암호)을 수정하거나 삭제할 수 있습니다.`
+                  : ` ${staffSchool} 담당 학급 학생들의 필사·독후 활동만 보입니다.`}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => setTab('students')} className="px-3 py-2 rounded-xl text-sm bg-amber-500 text-stone-950 font-semibold">
+                학생 찾기
+              </button>
+              <button type="button" onClick={() => setTab('sessions')} className="px-3 py-2 rounded-xl text-sm bg-white border border-stone-200 text-stone-700">
+                필사 기록 조회
+              </button>
+              <button type="button" onClick={() => setTab('reports')} className="px-3 py-2 rounded-xl text-sm bg-white border border-stone-200 text-stone-700">
+                독후감 보기
+              </button>
+            </div>
           </section>
         )}
 
         {tab === 'students' && (
           <AdminTable
-            empty="등록된 학생이 없습니다."
+            empty={hasRosterFilter ? '조건에 맞는 학생이 없습니다. 학년·반·번호를 확인해 주세요.' : '등록된 학생이 없습니다.'}
             headers={['학교', '학급', '이름', '필사', '독후감', '글자 수', '']}
             rows={filteredStudents.map((student) => [
               student.schoolName,
@@ -776,8 +882,8 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
               </div>
             )}
             <AdminTable
-              empty="필사 기록이 없습니다."
-              headers={['선택', '학생', '작품', '타수', '정확도', '글자 수']}
+              empty={hasRosterFilter ? '조건에 맞는 필사 기록이 없습니다. 학생 이름이나 학년·반·번호를 바꿔 보세요.' : '필사 기록이 없습니다.'}
+              headers={['선택', '학급', '학생', '작품', '타수', '정확도', '글자 수']}
               rows={filteredSessions.map((session) => {
                 const studentId = session.studentProfile?.accountId || '';
                 const key = sessionRecordKey(session);
@@ -790,6 +896,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
                     onChange={() => toggleSessionSelected(key)}
                     aria-label={`${session.studentProfile?.name || '학생'} 필사 기록 선택`}
                   />,
+                  classLabel(session.studentProfile),
                   session.studentProfile?.name || '-',
                   `${session.bookTitle} · ${session.excerptTitle}`,
                   `${session.cpm}`,
@@ -803,9 +910,10 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
 
         {tab === 'reports' && (
           <AdminTable
-            empty="독후감이 없습니다."
-            headers={['학생', '작품', '제목', '별점', '']}
+            empty={hasRosterFilter ? '조건에 맞는 독후감이 없습니다.' : '독후감이 없습니다.'}
+            headers={['학급', '학생', '작품', '제목', '별점', '']}
             rows={filteredReports.map((report) => [
+              classLabel(report.studentProfile),
               report.studentProfile?.name || '-',
               report.bookTitle,
               report.title,
@@ -1265,20 +1373,37 @@ function StaffShell({
           </div>
         </nav>
       </aside>
-      <div className={`${bar ? 'pt-16' : ''} md:pl-56`}>{children}</div>
+      <div className={`${bar ? 'pt-16' : ''} md:pl-56`}>
+        {children}
+        <p className={`text-center text-xs py-6 ${dark ? 'text-stone-500' : 'text-stone-400'}`}>© jiseok</p>
+      </div>
     </div>
   );
 }
 
-function StatCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: number }) {
+function StatCard({
+  icon,
+  label,
+  value,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+  onClick?: () => void;
+}) {
   return (
-    <div className="bg-white border border-stone-200 rounded-2xl p-4 flex items-center gap-3">
+    <button
+      type="button"
+      onClick={onClick}
+      className="bg-white border border-stone-200 rounded-2xl p-4 flex items-center gap-3 text-left hover:border-amber-300 hover:shadow-sm transition-all"
+    >
       <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center">{icon}</div>
       <div>
         <p className="text-xs text-stone-500">{label}</p>
         <p className="text-2xl font-bold">{value}</p>
       </div>
-    </div>
+    </button>
   );
 }
 

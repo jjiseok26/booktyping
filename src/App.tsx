@@ -425,11 +425,11 @@ export default function App() {
             <span>공개 고전 문학 필사 및 학급 노력 순위 프로젝트</span>
           </div>
 
-          <div className="flex items-center gap-2 text-center sm:text-right">
+          <div className="flex items-center gap-2 text-center sm:text-right flex-wrap justify-center sm:justify-end">
+            <span className="text-stone-200 font-medium">© jiseok</span>
+            <span className="text-stone-600">|</span>
             <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span className="text-stone-400">
-              본 서비스의 모든 수록작은 저작권 보호기간(사후 70년)이 만료된 퍼블릭 도메인 저작물입니다.
-            </span>
+            <span className="text-stone-400">수록작은 저작권 만료 퍼블릭 도메인입니다.</span>
             <span className="text-stone-600">|</span>
             <button
               onClick={() => {
