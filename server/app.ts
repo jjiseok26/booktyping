@@ -24,6 +24,8 @@ import {
   loginTeacher,
   logoutAdmin,
   registerStudent,
+  registerTeacher,
+  approveTeacher,
   saveReport,
   saveSession,
   updateStudentAccount,
@@ -78,6 +80,7 @@ app.use((req, _res, next) => {
     '/api/admin-logout': '/api/admin/logout',
     '/api/session-item': '/api/sessions',
     '/api/report-item': '/api/reports',
+    '/api/teacher-register': '/api/teachers/register',
   };
   const mapped = aliases[parsed.pathname];
   if (mapped) {
@@ -324,6 +327,34 @@ app.post(
 );
 
 app.post(
+  '/api/teacher-register',
+  asyncRoute(async (req, res) => {
+    const result = await registerTeacher({
+      schoolName: String(req.body?.schoolName || ''),
+      username: String(req.body?.username || ''),
+      password: String(req.body?.password || ''),
+      grade: Number(req.body?.grade || 0),
+      classNum: Number(req.body?.classNum || 0),
+    });
+    res.status(result.success ? 200 : 400).json(result);
+  })
+);
+
+app.post(
+  '/api/teachers/register',
+  asyncRoute(async (req, res) => {
+    const result = await registerTeacher({
+      schoolName: String(req.body?.schoolName || ''),
+      username: String(req.body?.username || ''),
+      password: String(req.body?.password || ''),
+      grade: Number(req.body?.grade || 0),
+      classNum: Number(req.body?.classNum || 0),
+    });
+    res.status(result.success ? 200 : 400).json(result);
+  })
+);
+
+app.post(
   '/api/admin-login',
   asyncRoute(async (req, res) => {
     const result = await loginAdmin(String(req.body?.username || ''), String(req.body?.password || ''));
@@ -402,6 +433,8 @@ app.patch(
     const result = await updateStudentAccount(
       req.params.id,
       {
+        schoolYear: req.body?.schoolYear,
+        schoolName: req.body?.schoolName,
         grade: req.body?.grade,
         classNum: req.body?.classNum,
         studentNum: req.body?.studentNum,
@@ -505,6 +538,20 @@ app.post(
       ...result,
       teachers: result.success ? await listTeachers() : undefined,
     });
+  })
+);
+
+app.patch(
+  '/api/admin/teachers/:id',
+  asyncRoute(async (req, res) => {
+    const staff = await requireAdminOnly(req, res);
+    if (!staff) return;
+    if (req.body?.approved !== true && req.body?.approved !== 1) {
+      res.status(400).json({ success: false, message: '승인 여부만 변경할 수 있습니다.' });
+      return;
+    }
+    const result = await approveTeacher(req.params.id);
+    res.status(result.success ? 200 : 400).json(result);
   })
 );
 

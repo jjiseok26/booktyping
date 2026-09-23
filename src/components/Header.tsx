@@ -34,6 +34,7 @@ interface HeaderProps {
   onOpenAuthModal?: (mode?: 'login' | 'register') => void;
   onLogoutAccount?: () => void;
   onOpenTeacherLogin?: () => void;
+  teacherConsole?: boolean;
 }
 
 const NAV_ITEMS: Array<{ id: AppView; label: string; Icon: typeof Keyboard }> = [
@@ -55,6 +56,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAuthModal,
   onLogoutAccount,
   onOpenTeacherLogin,
+  teacherConsole,
 }) => {
   const [showSettingsDropdown, setShowSettingsDropdown] = useState(false);
   const [showCopyrightModal, setShowCopyrightModal] = useState(false);
@@ -239,7 +241,7 @@ export const Header: React.FC<HeaderProps> = ({
               className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-semibold border border-stone-700"
             >
               <School className="w-3.5 h-3.5 text-amber-400" />
-              <span>선생님 로그인</span>
+              <span>{teacherConsole ? '선생님 콘솔' : '선생님 로그인'}</span>
             </button>
           )}
 

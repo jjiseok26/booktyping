@@ -269,6 +269,7 @@ async function migrateExtraColumns(): Promise<void> {
     'ALTER TABLE teachers ADD COLUMN grade INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE teachers ADD COLUMN class_num INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE teachers ADD COLUMN is_school_admin INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE teachers ADD COLUMN approved INTEGER NOT NULL DEFAULT 1',
   ];
   for (const sql of teacherAlters) {
     try {
@@ -712,6 +713,7 @@ export interface TeacherAccount {
   grade: number;
   classNum: number;
   role: 'teacher' | 'school_admin';
+  approved: boolean;
   createdAt: number;
   lastLoginAt: number;
 }
@@ -824,6 +826,9 @@ export async function loginAdmin(
   const teacherRows = await query('SELECT * FROM teachers WHERE username = ? LIMIT 1', [name]);
   const teacherRow = teacherRows[0];
   if (teacherRow && verifyPassword(pass, String(teacherRow.password_hash))) {
+    if (Number(teacherRow.approved ?? 1) === 0) {
+      return { success: false, message: '관리자 승인 후 로그인할 수 있습니다.' };
+    }
     const now = Date.now();
     const schoolName = String(teacherRow.school_name);
     const grade = Number(teacherRow.grade || 0);
@@ -861,7 +866,12 @@ export async function loginTeacher(
 ): Promise<{ success: boolean; message: string; token?: string; role?: StaffRole; admin?: AdminAccount }> {
   const result = await loginAdmin(username, password);
   if (!result.success) {
-    return { success: false, message: '선생님 아이디 또는 비밀번호가 올바르지 않습니다.' };
+    return {
+      success: false,
+      message: result.message.includes('승인')
+        ? result.message
+        : '선생님 아이디 또는 비밀번호가 올바르지 않습니다.',
+    };
   }
   if ((result.role !== 'teacher' && result.role !== 'school_admin') || !result.admin?.schoolName) {
     return { success: false, message: '선생님 계정으로 로그인해 주세요. 관리자는 관리자 로그인을 이용하세요.' };
@@ -917,11 +927,13 @@ export async function createTeacher(data: {
   grade?: number;
   classNum?: number;
   schoolAdmin?: boolean;
+  approved?: boolean;
 }): Promise<{ success: boolean; message: string; teacher?: TeacherAccount }> {
   const schoolName = expandSchoolName(data.schoolName);
   const username = data.username.trim();
   const password = data.password.trim();
   const schoolAdmin = Boolean(data.schoolAdmin);
+  const approved = data.approved !== false;
   const grade = schoolAdmin ? 0 : Number(data.grade || 0);
   const classNum = schoolAdmin ? 0 : Number(data.classNum || 0);
   if (!schoolName) return { success: false, message: '학교명을 입력해주세요.' };
@@ -939,9 +951,9 @@ export async function createTeacher(data: {
   const role: 'teacher' | 'school_admin' = schoolAdmin ? 'school_admin' : 'teacher';
   try {
     await run(
-      `INSERT INTO teachers (id, school_name, username, password_hash, grade, class_num, is_school_admin, created_at, last_login_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, schoolName, username, hashPassword(password), grade, classNum, schoolAdmin ? 1 : 0, now, now]
+      `INSERT INTO teachers (id, school_name, username, password_hash, grade, class_num, is_school_admin, approved, created_at, last_login_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, schoolName, username, hashPassword(password), grade, classNum, schoolAdmin ? 1 : 0, approved ? 1 : 0, now, now]
     );
   } catch (error) {
     if (isUniqueViolation(error)) {
@@ -954,9 +966,35 @@ export async function createTeacher(data: {
     success: true,
     message: schoolAdmin
       ? `${schoolName} 최고관리자 계정을 만들었습니다.`
-      : `${schoolName} ${grade}학년 ${classNum}반 담임교사 계정을 만들었습니다.`,
-    teacher: { id, schoolName, username, grade, classNum, role, createdAt: now, lastLoginAt: now },
+      : approved
+        ? `${schoolName} ${grade}학년 ${classNum}반 담임교사 계정을 만들었습니다.`
+        : '회원가입 신청이 완료되었습니다. 관리자 승인 후 로그인할 수 있습니다.',
+    teacher: { id, schoolName, username, grade, classNum, role, approved, createdAt: now, lastLoginAt: now },
   };
+}
+
+export async function registerTeacher(data: {
+  schoolName: string;
+  username: string;
+  password: string;
+  grade?: number;
+  classNum?: number;
+}): Promise<{ success: boolean; message: string }> {
+  const result = await createTeacher({
+    ...data,
+    schoolAdmin: false,
+    approved: false,
+  });
+  return { success: result.success, message: result.message };
+}
+
+export async function approveTeacher(id: string): Promise<{ success: boolean; message: string; teachers: TeacherAccount[] }> {
+  const rows = await query('SELECT id FROM teachers WHERE id = ? LIMIT 1', [id]);
+  if (!rows[0]) {
+    return { success: false, message: '교사 계정을 찾을 수 없습니다.', teachers: await listTeachers() };
+  }
+  await run('UPDATE teachers SET approved = 1 WHERE id = ?', [id]);
+  return { success: true, message: '교사 가입을 승인했습니다.', teachers: await listTeachers() };
 }
 
 export async function createTeachers(
@@ -996,13 +1034,16 @@ function mapTeacher(row: SqlRow): TeacherAccount {
     grade: Number(row.grade || 0),
     classNum: Number(row.class_num || 0),
     role: schoolAdmin ? 'school_admin' : 'teacher',
+    approved: Number(row.approved ?? 1) !== 0,
     createdAt: Number(row.created_at),
     lastLoginAt: Number(row.last_login_at),
   };
 }
 
 export async function listTeachers(): Promise<TeacherAccount[]> {
-  const rows = await query('SELECT * FROM teachers ORDER BY school_name, is_school_admin DESC, grade, class_num, username');
+  const rows = await query(
+    'SELECT * FROM teachers ORDER BY approved ASC, school_name, is_school_admin DESC, grade, class_num, username'
+  );
   return rows.map(mapTeacher);
 }
 
@@ -1098,7 +1139,7 @@ export async function deleteStudentAccount(id: string): Promise<void> {
 
 export async function updateStudentAccount(
   id: string,
-  patch: { grade?: number; classNum?: number; studentNum?: number; name?: string },
+  patch: { schoolYear?: string; schoolName?: string; grade?: number; classNum?: number; studentNum?: number; name?: string },
   allowedSchool?: string
 ): Promise<{ success: boolean; message: string; account?: StudentAccount }> {
   const current = await getStudentById(id);
@@ -1107,31 +1148,39 @@ export async function updateStudentAccount(
     return { success: false, message: '해당 학교 학생만 수정할 수 있습니다.' };
   }
 
+  const schoolYear = patch.schoolYear === undefined ? current.schoolYear : String(patch.schoolYear).trim();
+  const schoolName = patch.schoolName === undefined ? current.schoolName : expandSchoolName(String(patch.schoolName));
   const grade = patch.grade === undefined ? current.grade : Number(patch.grade);
   const classNum = patch.classNum === undefined ? current.classNum : Number(patch.classNum);
   const studentNum = patch.studentNum === undefined ? current.studentNum : Number(patch.studentNum);
   const name = patch.name === undefined ? current.name : String(patch.name).trim();
+  if (!schoolYear) return { success: false, message: '학년도를 선택해주세요.' };
+  if (!schoolName) return { success: false, message: '학교명을 입력해주세요.' };
   if (!name) return { success: false, message: '학생 성명(로그인 암호)을 입력해주세요.' };
   if (!Number.isInteger(grade) || grade < 1 || !Number.isInteger(classNum) || classNum < 1 || !Number.isInteger(studentNum) || studentNum < 1) {
     return { success: false, message: '학년, 반, 번호를 올바르게 입력해주세요.' };
   }
 
-  const nextId = buildStudentAccountId(current.schoolYear, current.schoolName, grade, classNum, studentNum);
+  const nextId = buildStudentAccountId(schoolYear, schoolName, grade, classNum, studentNum);
   const now = Date.now();
   if (nextId === id) {
     await run('UPDATE students SET name = ?, last_login_at = ? WHERE id = ?', [name, now, id]);
-    return { success: true, message: '학생 정보를 수정했습니다.', account: { ...current, name, lastLoginAt: now } };
+    return {
+      success: true,
+      message: '학생 정보를 수정했습니다.',
+      account: { ...current, name, lastLoginAt: now },
+    };
   }
 
   try {
     await run(
       `INSERT INTO students (id, school_year, school_name, grade, class_num, student_num, name, created_at, last_login_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [nextId, current.schoolYear, current.schoolName, grade, classNum, studentNum, name, current.createdAt, now]
+      [nextId, schoolYear, schoolName, grade, classNum, studentNum, name, current.createdAt, now]
     );
   } catch (error) {
     if (isUniqueViolation(error)) {
-      return { success: false, message: '이미 사용 중인 학년/반/번호입니다.' };
+      return { success: false, message: '이미 사용 중인 학년도/학교/학년/반/번호입니다.' };
     }
     throw error;
   }

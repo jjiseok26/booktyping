@@ -24,6 +24,8 @@ import {
   rememberRecentAccount,
 } from './utils/storage';
 import {
+  apiAdminReports,
+  apiAdminSessions,
   apiClearSessions,
   apiDeleteSession,
   apiListReports,
@@ -40,6 +42,13 @@ export default function App() {
   const [staffLoginMode, setStaffLoginMode] = useState<'admin' | 'teacher'>(
     window.location.hash === '#teacher' ? 'teacher' : 'admin'
   );
+  const [staffBrowse, setStaffBrowse] = useState<{
+    username: string;
+    role: 'admin' | 'teacher' | 'school_admin';
+    schoolName: string;
+    grade: number;
+    classNum: number;
+  } | null>(null);
   const [selectedBook, setSelectedBook] = useState<BookExcerpt>(PUBLIC_DOMAIN_BOOKS[0]);
   const [history, setHistory] = useState<TypingSessionResult[]>([]);
   const [settings, setSettings] = useState<TypingSettings>(getStoredSettings());
@@ -100,6 +109,7 @@ export default function App() {
   };
 
   const handleSaveSession = (result: TypingSessionResult) => {
+    if (staffBrowse) return;
     const sessionWithProfile: TypingSessionResult = {
       ...result,
       studentProfile,
@@ -120,6 +130,7 @@ export default function App() {
 
   // Student Auth Handlers
   const handleLoginSuccess = (account: StudentAccount) => {
+    setStaffBrowse(null);
     setCurrentStudentAccount(account);
     setCurrentAccount(account);
     rememberRecentAccount(account);
@@ -198,6 +209,7 @@ export default function App() {
   };
 
   const handleClearHistory = () => {
+    if (staffBrowse) return;
     if (window.confirm('정말 모든 필사 통계 기록을 삭제하시겠습니까?')) {
       if (currentAccount) {
         void apiClearSessions(currentAccount.id).then(() => setHistory([])).catch(() => setHistory([]));
@@ -209,6 +221,7 @@ export default function App() {
   };
 
   const handleDeleteRecord = (id: string) => {
+    if (staffBrowse) return;
     if (currentAccount) {
       void apiDeleteSession(currentAccount.id, id).then(setHistory).catch(() => {
         setHistory(history.filter((h) => h.id !== id));
@@ -231,6 +244,46 @@ export default function App() {
       {currentView === 'admin' ? (
         <AdminView
           loginMode={staffLoginMode}
+          onBrowseStudentView={(staff) => {
+            const profile: StudentProfile = {
+              schoolYear: studentProfile.schoolYear || '2026학년도',
+              schoolName: staff.schoolName,
+              grade: staff.grade > 0 ? staff.grade : 1,
+              classNum: staff.classNum > 0 ? staff.classNum : 0,
+              studentNum: 0,
+              name: `${staff.username} 선생님`,
+            };
+            setStudentProfile(profile);
+            setStaffBrowse(staff);
+            window.location.hash = '';
+            setCurrentView('leaderboard');
+            void Promise.all([apiAdminSessions(), apiAdminReports()])
+              .then(([sessions, classReports]) => {
+                setHistory(sessions);
+                setReports(classReports);
+              })
+              .catch(() => {
+                setHistory([]);
+                setReports([]);
+              });
+          }}
+          onStaffLogout={() => {
+            setStaffBrowse(null);
+            const acc = getCurrentStudentAccount();
+            if (acc) {
+              setStudentProfile({
+                schoolYear: acc.schoolYear,
+                schoolName: acc.schoolName,
+                grade: acc.grade,
+                classNum: acc.classNum,
+                studentNum: acc.studentNum,
+                name: acc.name,
+                accountId: acc.id,
+              });
+            } else {
+              setStudentProfile(getStoredStudentProfile());
+            }
+          }}
           onBack={() => {
             window.location.hash = '';
             setStaffLoginMode('admin');
@@ -248,9 +301,10 @@ export default function App() {
         activeBookTitle={selectedBook.bookTitle}
         activeExcerptTitle={selectedBook.title}
         studentProfile={studentProfile}
-        currentAccount={currentAccount}
+        currentAccount={staffBrowse ? null : currentAccount}
         onOpenAuthModal={handleOpenAuthModal}
         onLogoutAccount={handleLogoutAccount}
+        teacherConsole={Boolean(staffBrowse)}
         onOpenTeacherLogin={() => {
           window.location.hash = 'teacher';
           setStaffLoginMode('teacher');
@@ -287,7 +341,7 @@ export default function App() {
             userHistory={history}
             onOpenProfileModal={() => setIsProfileModalOpen(true)}
             onStartTyping={() => setCurrentView('typing')}
-            currentAccount={currentAccount}
+            currentAccount={staffBrowse ? null : currentAccount}
             onOpenAuthModal={handleOpenAuthModal}
           />
         )}
@@ -300,6 +354,10 @@ export default function App() {
             history={history}
             onOpenReportModal={(report, book) => handleOpenReportModal(report, book)}
             onRefreshReports={() => {
+              if (staffBrowse) {
+                void apiAdminReports().then(setReports).catch(() => setReports([]));
+                return;
+              }
               if (currentAccount) {
                 void apiListReports(currentAccount.id).then(setReports).catch(() => setReports(getStoredBookReports()));
                 return;
@@ -379,7 +437,7 @@ export default function App() {
               }}
               className="text-stone-500 hover:text-amber-300"
             >
-              선생님 로그인
+              {staffBrowse ? '선생님 콘솔' : '선생님 로그인'}
             </button>
             <span className="text-stone-600">|</span>
             <button

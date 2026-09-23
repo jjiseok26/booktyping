@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS teachers (
   grade INTEGER NOT NULL DEFAULT 0,
   class_num INTEGER NOT NULL DEFAULT 0,
   is_school_admin INTEGER NOT NULL DEFAULT 0,
+  approved INTEGER NOT NULL DEFAULT 1,
   created_at BIGINT NOT NULL,
   last_login_at BIGINT NOT NULL
 );

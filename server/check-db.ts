@@ -18,6 +18,7 @@ import {
   loginTeacher,
   listAllStudents,
   listSchoolNames,
+  approveTeacher,
   updateStudentAccount,
   deleteStudentAccount,
 } from './db';
@@ -240,6 +241,43 @@ async function main() {
   if (!renamedLogin.success) throw new Error(renamedLogin.message);
   const blockedSchool = await updateStudentAccount(renamed.account?.id || '', { name: '차단' }, '다른학교');
   if (blockedSchool.success) throw new Error('school admin of another school should not edit student');
+
+  const pending = await createTeacher({
+    schoolName: '금구중',
+    username: 'pending-teacher',
+    password: 'wait1234',
+    grade: 2,
+    classNum: 3,
+    approved: false,
+  });
+  if (!pending.success || pending.teacher?.approved) {
+    throw new Error(pending.message || 'pending teacher should not be approved');
+  }
+  const pendingLogin = await loginTeacher('pending-teacher', 'wait1234');
+  if (pendingLogin.success) throw new Error('unapproved teacher should not login');
+  if (!pendingLogin.message.includes('승인')) throw new Error(pendingLogin.message);
+  const approvedTeacher = await approveTeacher(pending.teacher?.id || '');
+  if (!approvedTeacher.success) throw new Error(approvedTeacher.message);
+  const pendingOk = await loginTeacher('pending-teacher', 'wait1234');
+  if (!pendingOk.success) throw new Error(pendingOk.message);
+
+  const moved = await updateStudentAccount(
+    renamed.account?.id || '',
+    { schoolName: '가온중', schoolYear: '2027학년도' },
+    '금구중학교'
+  );
+  if (!moved.success || moved.account?.schoolName !== '가온중학교' || moved.account.schoolYear !== '2027학년도') {
+    throw new Error(moved.message);
+  }
+  const movedLogin = await loginStudent({
+    schoolYear: '2027학년도',
+    schoolName: '가온중',
+    grade: 1,
+    classNum: 3,
+    studentNum: 8,
+    name: '박민수수정',
+  });
+  if (!movedLogin.success) throw new Error(movedLogin.message);
 
   const batch = await createTeachers([
     {

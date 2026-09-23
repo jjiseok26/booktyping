@@ -1,7 +1,8 @@
 import { BookExcerpt } from '../types';
 import { ADDITIONAL_PUBLIC_DOMAIN_BOOKS } from './moreBooks';
+import { FULL_NOVEL_SENTENCES, PARAPHRASE_BOOK_IDS } from './fullNovels';
 
-export const PUBLIC_DOMAIN_BOOKS: BookExcerpt[] = [
+const BOOK_CATALOG: BookExcerpt[] = [
   // ==================== 한국 근대시 ====================
   {
     id: 'yoon-seosi',
@@ -1014,6 +1015,21 @@ export const PUBLIC_DOMAIN_BOOKS: BookExcerpt[] = [
   },
   ...ADDITIONAL_PUBLIC_DOMAIN_BOOKS,
 ];
+
+export const PUBLIC_DOMAIN_BOOKS: BookExcerpt[] = BOOK_CATALOG
+  .filter((book) => !PARAPHRASE_BOOK_IDS.has(book.id))
+  .map((book) => {
+    const sentences = FULL_NOVEL_SENTENCES[book.id];
+    if (!sentences?.length) return book;
+    return {
+      ...book,
+      title: '전편',
+      description: `저작권이 만료된 《${book.bookTitle}》 원문 전체를 처음부터 끝까지 필사합니다.`,
+      sourceAttribution: '위키문헌 등 공개 원문 / 저작권 만료 저작물',
+      sentences,
+      fullSentences: sentences,
+    };
+  });
 
 export function getTypingSentences(book: BookExcerpt): string[] {
   if (book.fullSentences && book.fullSentences.length > 0) return book.fullSentences;

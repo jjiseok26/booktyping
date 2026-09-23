@@ -175,8 +175,8 @@ export async function apiAdminLogin(username: string, password: string) {
     try {
       const data = await request<{
         token?: string;
-        role?: 'admin' | 'teacher';
-        admin?: { id: string; username: string; role?: 'admin' | 'teacher'; schoolName?: string };
+        role?: 'admin' | 'teacher' | 'school_admin';
+        admin?: { id: string; username: string; role?: 'admin' | 'teacher' | 'school_admin'; schoolName?: string; grade?: number; classNum?: number };
       }>('/api/admin/login', {
         method: 'POST',
         body: JSON.stringify(payload),
@@ -208,6 +208,26 @@ export async function apiTeacherLogin(username: string, password: string) {
     return {
       success: false,
       message: error instanceof Error ? error.message : '선생님 로그인에 실패했습니다.',
+    };
+  }
+}
+
+export async function apiTeacherRegister(payload: {
+  schoolName: string;
+  username: string;
+  password: string;
+  grade: number;
+  classNum: number;
+}) {
+  try {
+    return await request('/api/teacher-register', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : '선생님 회원가입에 실패했습니다.',
     };
   }
 }
@@ -288,6 +308,7 @@ export async function apiAdminTeachers() {
       grade: number;
       classNum: number;
       role: 'teacher' | 'school_admin';
+      approved?: boolean;
       createdAt: number;
       lastLoginAt: number;
     }>;
@@ -311,6 +332,7 @@ export async function apiAdminCreateTeacher(payload: {
       grade: number;
       classNum: number;
       role: 'teacher' | 'school_admin';
+      approved?: boolean;
       createdAt: number;
       lastLoginAt: number;
     }>;
@@ -340,6 +362,7 @@ export async function apiAdminCreateTeachers(
       grade: number;
       classNum: number;
       role: 'teacher' | 'school_admin';
+      approved?: boolean;
       createdAt: number;
       lastLoginAt: number;
     }>;
@@ -351,7 +374,14 @@ export async function apiAdminCreateTeachers(
 
 export async function apiAdminUpdateStudent(
   id: string,
-  payload: { grade?: number; classNum?: number; studentNum?: number; name?: string }
+  payload: {
+    schoolYear?: string;
+    schoolName?: string;
+    grade?: number;
+    classNum?: number;
+    studentNum?: number;
+    name?: string;
+  }
 ) {
   const data = await adminRequest<{
     students: Array<StudentAccount & { sessionCount: number; reportCount: number; totalChars: number }>;
@@ -360,6 +390,26 @@ export async function apiAdminUpdateStudent(
     body: JSON.stringify(payload),
   });
   return data.students || [];
+}
+
+export async function apiAdminApproveTeacher(id: string) {
+  const data = await adminRequest<{
+    teachers?: Array<{
+      id: string;
+      schoolName: string;
+      username: string;
+      grade: number;
+      classNum: number;
+      role: 'teacher' | 'school_admin';
+      approved?: boolean;
+      createdAt: number;
+      lastLoginAt: number;
+    }>;
+  }>(`/api/admin-teachers?id=${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ approved: true }),
+  });
+  return data.teachers || [];
 }
 
 export async function apiAdminDeleteTeacher(id: string) {
@@ -371,6 +421,7 @@ export async function apiAdminDeleteTeacher(id: string) {
       grade: number;
       classNum: number;
       role: 'teacher' | 'school_admin';
+      approved?: boolean;
       createdAt: number;
       lastLoginAt: number;
     }>;

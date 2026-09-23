@@ -15,6 +15,9 @@
     },
     "api/teacher-login.js": {
       "includeFiles": "server/schema.sql"
+    },
+    "api/teacher-register.js": {
+      "includeFiles": "server/schema.sql"
     }
   }
 }
