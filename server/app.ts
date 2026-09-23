@@ -167,6 +167,17 @@ function staffScope(staff: AdminAccount) {
   };
 }
 
+function studentInStaffScope(
+  student: { schoolName: string; grade: number; classNum: number },
+  staff: AdminAccount
+): boolean {
+  const scope = staffScope(staff);
+  if (scope.schoolName && student.schoolName !== scope.schoolName) return false;
+  if (scope.grade && student.grade !== scope.grade) return false;
+  if (scope.classNum && student.classNum !== scope.classNum) return false;
+  return true;
+}
+
 function clientKey(req: express.Request): string {
   const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
   return forwarded || req.socket.remoteAddress || 'unknown';
@@ -535,18 +546,45 @@ app.get(
   })
 );
 
+app.post(
+  '/api/admin/sessions',
+  asyncRoute(async (req, res) => {
+    const staff = await requireStaff(req, res);
+    if (!staff) return;
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    if (items.length === 0) {
+      res.status(400).json({ success: false, message: '삭제할 필사 기록을 선택해 주세요.' });
+      return;
+    }
+    for (const item of items.slice(0, 200)) {
+      const sessionId = String(item?.id || '');
+      const studentId = String(item?.studentId || '');
+      if (!sessionId || !studentId) continue;
+      const student = await getStudentById(studentId);
+      if (!student || !studentInStaffScope(student, staff)) continue;
+      await deleteSession(sessionId, studentId);
+    }
+    res.json({ success: true, sessions: await listAllSessions(200, staffScope(staff)) });
+  })
+);
+
 app.delete(
   '/api/admin/sessions/:id',
   asyncRoute(async (req, res) => {
-    const staff = await requireAdminOnly(req, res);
+    const staff = await requireStaff(req, res);
     if (!staff) return;
     const studentId = String(req.query.studentId || '');
     if (!studentId) {
       res.status(400).json({ success: false, message: 'studentId가 필요합니다.' });
       return;
     }
+    const student = await getStudentById(studentId);
+    if (!student || !studentInStaffScope(student, staff)) {
+      res.status(403).json({ success: false, message: '해당 학급 학생의 기록만 삭제할 수 있습니다.' });
+      return;
+    }
     await deleteSession(req.params.id, studentId);
-    res.json({ success: true, sessions: await listAllSessions() });
+    res.json({ success: true, sessions: await listAllSessions(200, staffScope(staff)) });
   })
 );
 

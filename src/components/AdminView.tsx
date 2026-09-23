@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  ShieldCheck,
   LogOut,
   Users,
   Keyboard,
@@ -22,7 +21,7 @@ import {
   apiAdminCreateTeachers,
   apiAdminApproveTeacher,
   apiAdminDeleteReport,
-  apiAdminDeleteSession,
+  apiAdminDeleteSessions,
   apiAdminDeleteStudent,
   apiAdminDeleteTeacher,
   apiAdminLogin,
@@ -81,6 +80,10 @@ function asStaffRole(role?: string): StaffRole {
   return 'admin';
 }
 
+function sessionRecordKey(session: TypingSessionResult): string {
+  return `${session.id}\t${session.studentProfile?.accountId || ''}`;
+}
+
 export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin', onBrowseStudentView, onStaffLogout }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -103,6 +106,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
   const [overview, setOverview] = useState({ studentCount: 0, sessionCount: 0, reportCount: 0 });
   const [students, setStudents] = useState<AdminStudent[]>([]);
   const [sessions, setSessions] = useState<TypingSessionResult[]>([]);
+  const [selectedSessionKeys, setSelectedSessionKeys] = useState<string[]>([]);
   const [reports, setReports] = useState<BookReport[]>([]);
   const [teachers, setTeachers] = useState<TeacherRow[]>([]);
   const [schools, setSchools] = useState<string[]>([]);
@@ -358,6 +362,31 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
     URL.revokeObjectURL(url);
   };
 
+  const toggleSessionSelected = (key: string) => {
+    setSelectedSessionKeys((current) =>
+      current.includes(key) ? current.filter((item) => item !== key) : [...current, key]
+    );
+  };
+
+  const deleteSelectedSessions = async () => {
+    const items = selectedSessionKeys
+      .map((key) => {
+        const [id, studentId] = key.split('\t');
+        return id && studentId ? { id, studentId } : null;
+      })
+      .filter((item): item is { id: string; studentId: string } => Boolean(item));
+    if (items.length === 0) return;
+    if (!window.confirm(`선택한 필사 기록 ${items.length}건을 삭제할까요?`)) return;
+    try {
+      const next = await apiAdminDeleteSessions(items);
+      setSessions(next);
+      setSelectedSessionKeys([]);
+      await loadDashboard(staffRole);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : '필사 기록을 삭제하지 못했습니다.');
+    }
+  };
+
   const scopedStudents = useMemo(
     () => (isAdmin || !staffSchool ? students : students.filter((student) => student.schoolName === staffSchool)),
     [isAdmin, staffSchool, students]
@@ -574,7 +603,10 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
   }
 
   return (
-    <StaffShell title={consoleTitle} subtitle={`${adminName} 계정${staffSchool ? ` · ${staffSchool}` : ''}`} onBack={() => {
+    <StaffShell
+      title={consoleTitle}
+      subtitle={`${adminName} 계정${staffSchool ? ` · ${staffSchool}` : ''}`}
+      onBack={() => {
       if ((staffRole === 'teacher' || staffRole === 'school_admin') && onBrowseStudentView && adminName) {
         onBrowseStudentView({
           username: adminName,
@@ -586,50 +618,39 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
         return;
       }
       onBack();
-    }}>
+    }}
+      bar={
+        <>
+          <button
+            type="button"
+            onClick={() => {
+              if ((staffRole === 'teacher' || staffRole === 'school_admin') && onBrowseStudentView && adminName) {
+                onBrowseStudentView({
+                  username: adminName,
+                  role: staffRole,
+                  schoolName: staffSchool,
+                  grade: staffGrade,
+                  classNum: staffClassNum,
+                });
+                return;
+              }
+              onBack();
+            }}
+            className="px-3 py-1.5 rounded-lg text-xs bg-stone-800 border border-stone-700"
+          >
+            학생 화면
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleLogout()}
+            className="px-3 py-1.5 rounded-lg text-xs bg-stone-800 border border-stone-700 flex items-center gap-1"
+          >
+            <LogOut className="w-3.5 h-3.5" /> 로그아웃
+          </button>
+        </>
+      }
+    >
     <div className="min-h-screen bg-[#fbfaf8] text-stone-900">
-      <header className="sticky top-0 z-20 bg-stone-900 text-stone-100 border-b border-stone-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-amber-500/20 border border-amber-400/30 text-amber-300 flex items-center justify-center">
-              <ShieldCheck className="w-5 h-5" />
-            </div>
-            <div>
-              <p className="font-bold">{consoleTitle}</p>
-              <p className="text-xs text-stone-400">
-                {adminName} 계정{staffSchool ? ` · ${staffSchool}` : ''}
-                {staffRole === 'teacher' ? ' · 담임' : staffRole === 'school_admin' ? ' · 최고관리자' : ''}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                if ((staffRole === 'teacher' || staffRole === 'school_admin') && onBrowseStudentView && adminName) {
-                  onBrowseStudentView({
-                    username: adminName,
-                    role: staffRole,
-                    schoolName: staffSchool,
-                    grade: staffGrade,
-                    classNum: staffClassNum,
-                  });
-                  return;
-                }
-                onBack();
-              }}
-              className="px-3 py-1.5 rounded-lg text-xs bg-stone-800 border border-stone-700"
-            >
-              학생 화면
-            </button>
-            <button
-              onClick={() => void handleLogout()}
-              className="px-3 py-1.5 rounded-lg text-xs bg-stone-800 border border-stone-700 flex items-center gap-1"
-            >
-              <LogOut className="w-3.5 h-3.5" /> 로그아웃
-            </button>
-          </div>
-        </div>
-      </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-5">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -725,34 +746,59 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
         )}
 
         {tab === 'sessions' && (
-          <AdminTable
-            empty="필사 기록이 없습니다."
-            headers={['학생', '작품', '타수', '정확도', '글자 수', '']}
-            rows={filteredSessions.map((session) => [
-              session.studentProfile?.name || '-',
-              `${session.bookTitle} · ${session.excerptTitle}`,
-              `${session.cpm}`,
-              `${session.accuracy}%`,
-              String(session.totalChars),
-              isAdmin ? (
+          <section className="space-y-3">
+            {filteredSessions.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
                 <button
-                  key={session.id}
-                  className="text-rose-600 hover:text-rose-700"
+                  type="button"
+                  className="px-3 py-1.5 rounded-lg text-xs border border-stone-200 bg-white"
                   onClick={() => {
-                    const studentId = session.studentProfile?.accountId;
-                    if (!studentId || !window.confirm('이 필사 기록을 삭제할까요?')) return;
-                    void apiAdminDeleteSession(session.id, studentId)
-                      .then(setSessions)
-                      .then(() => loadDashboard('admin'));
+                    const keys = filteredSessions.map(sessionRecordKey).filter((key) => !key.endsWith('\t'));
+                    const allOn = keys.length > 0 && keys.every((key) => selectedSessionKeys.includes(key));
+                    setSelectedSessionKeys(allOn ? [] : keys);
                   }}
                 >
-                  <Trash2 className="w-4 h-4" />
+                  {filteredSessions
+                    .map(sessionRecordKey)
+                    .filter((key) => !key.endsWith('\t'))
+                    .every((key) => selectedSessionKeys.includes(key)) && selectedSessionKeys.length > 0
+                    ? '선택 해제'
+                    : '전체 선택'}
                 </button>
-              ) : (
-                ''
-              ),
-            ])}
-          />
+                <button
+                  type="button"
+                  disabled={selectedSessionKeys.length === 0}
+                  className="px-3 py-1.5 rounded-lg text-xs bg-rose-600 text-white disabled:opacity-40"
+                  onClick={() => void deleteSelectedSessions()}
+                >
+                  선택 삭제{selectedSessionKeys.length ? ` (${selectedSessionKeys.length})` : ''}
+                </button>
+              </div>
+            )}
+            <AdminTable
+              empty="필사 기록이 없습니다."
+              headers={['선택', '학생', '작품', '타수', '정확도', '글자 수']}
+              rows={filteredSessions.map((session) => {
+                const studentId = session.studentProfile?.accountId || '';
+                const key = sessionRecordKey(session);
+                return [
+                  <input
+                    key={key}
+                    type="checkbox"
+                    checked={selectedSessionKeys.includes(key)}
+                    disabled={!studentId}
+                    onChange={() => toggleSessionSelected(key)}
+                    aria-label={`${session.studentProfile?.name || '학생'} 필사 기록 선택`}
+                  />,
+                  session.studentProfile?.name || '-',
+                  `${session.bookTitle} · ${session.excerptTitle}`,
+                  `${session.cpm}`,
+                  `${session.accuracy}%`,
+                  String(session.totalChars),
+                ];
+              })}
+            />
+          </section>
         )}
 
         {tab === 'reports' && (
@@ -1168,17 +1214,28 @@ function StaffShell({
   subtitle,
   onBack,
   dark,
+  bar,
   children,
 }: {
   title: string;
   subtitle?: string;
   onBack: () => void;
   dark?: boolean;
+  bar?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
-    <div className={`min-h-screen md:pl-56 ${dark ? 'bg-stone-950 text-stone-100' : 'bg-[#fbfaf8] text-stone-900'}`}>
-      <aside className="hidden md:flex fixed inset-y-0 left-0 z-30 w-56 bg-stone-900 text-stone-100 border-r border-stone-800 flex-col shadow-xl">
+    <div className={`min-h-screen ${dark ? 'bg-stone-950 text-stone-100' : 'bg-[#fbfaf8] text-stone-900'}`}>
+      {bar ? (
+        <header className="fixed top-0 left-0 right-0 z-40 h-16 bg-stone-900 text-stone-100 border-b border-stone-800">
+          <div className="h-full md:pl-56 px-4 sm:px-6 flex items-center justify-end gap-2">{bar}</div>
+        </header>
+      ) : null}
+      <aside
+        className={`hidden md:flex fixed left-0 bottom-0 z-30 w-56 bg-stone-900 text-stone-100 border-r border-stone-800 flex-col shadow-xl ${
+          bar ? 'top-0 pt-16' : 'inset-y-0'
+        }`}
+      >
         <div className="px-4 pt-5 pb-4 border-b border-stone-800">
           <button type="button" onClick={onBack} className="text-left group w-full">
             <div className="flex items-center gap-2.5">
@@ -1208,7 +1265,7 @@ function StaffShell({
           </div>
         </nav>
       </aside>
-      {children}
+      <div className={`${bar ? 'pt-16' : ''} md:pl-56`}>{children}</div>
     </div>
   );
 }

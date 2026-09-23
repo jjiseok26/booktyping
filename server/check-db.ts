@@ -2,6 +2,7 @@ import { mkdirSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import {
   clearSessions,
+  deleteSession,
   getLeaderboard,
   listSessions,
   loginStudent,
@@ -141,6 +142,10 @@ async function main() {
   });
   if (boardAfterLow[0]?.totalChars !== 120) {
     throw new Error(`accuracy below 80% should not count toward ranking: ${boardAfterLow[0]?.totalChars}`);
+  }
+  const afterOneDelete = await deleteSession('session-low-accuracy', login.account.id);
+  if (afterOneDelete.length !== 1 || afterOneDelete[0].id !== 'session-1') {
+    throw new Error('selected session was not deleted');
   }
 
   await clearSessions(login.account.id);

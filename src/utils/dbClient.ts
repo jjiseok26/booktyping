@@ -307,6 +307,14 @@ export async function apiAdminDeleteSession(id: string, studentId: string) {
   return data.sessions || [];
 }
 
+export async function apiAdminDeleteSessions(items: Array<{ id: string; studentId: string }>) {
+  const data = await adminRequest<{ sessions: TypingSessionResult[] }>('/api/admin-sessions', {
+    method: 'POST',
+    body: JSON.stringify({ items }),
+  });
+  return data.sessions || [];
+}
+
 export async function apiAdminReports() {
   const data = await adminRequest<{ reports: BookReport[] }>('/api/admin-reports');
   return data.reports || [];
