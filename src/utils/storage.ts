@@ -29,6 +29,12 @@ export const DEFAULT_SETTINGS: TypingSettings = {
   autoNextSentence: true,
 };
 
+export const RANKING_MIN_ACCURACY = 80;
+
+export function rankingSessions(history: TypingSessionResult[]): TypingSessionResult[] {
+  return history.filter((item) => Number(item.accuracy) >= RANKING_MIN_ACCURACY);
+}
+
 function isDemoRecordId(id: unknown): boolean {
   const value = String(id || '');
   return value.startsWith('sample-') || value.startsWith('report-sample-') || value.startsWith('peer-');
@@ -512,22 +518,23 @@ export function getClassLeaderboard(
       (activeClassNum <= 0 || a.classNum === activeClassNum)
   );
 
-  const hasUserSession = Boolean(profile.name && profile.name.trim()) || userHistory.length > 0;
+  const rankedHistory = rankingSessions(userHistory);
+  const hasUserSession = Boolean(profile.name && profile.name.trim()) || rankedHistory.length > 0 || userHistory.length > 0;
 
   if (classAccounts.length === 0 && !hasUserSession) {
     return [];
   }
 
-  const totalChars = userHistory.reduce((sum, h) => sum + h.totalChars, 0);
-  const totalStrokes = userHistory.reduce((sum, h) => sum + h.totalStrokes, 0);
-  const completedSessions = userHistory.length;
-  const totalPracticeTimeSec = userHistory.reduce((sum, h) => sum + h.durationSeconds, 0);
-  const peakCpm = userHistory.length > 0 ? Math.max(...userHistory.map((h) => h.peakCpm || h.cpm)) : 0;
+  const totalChars = rankedHistory.reduce((sum, h) => sum + h.totalChars, 0);
+  const totalStrokes = rankedHistory.reduce((sum, h) => sum + h.totalStrokes, 0);
+  const completedSessions = rankedHistory.length;
+  const totalPracticeTimeSec = rankedHistory.reduce((sum, h) => sum + h.durationSeconds, 0);
+  const peakCpm = rankedHistory.length > 0 ? Math.max(...rankedHistory.map((h) => h.peakCpm || h.cpm)) : 0;
   const avgCpm =
-    userHistory.length > 0 ? Math.round(userHistory.reduce((sum, h) => sum + h.cpm, 0) / userHistory.length) : 0;
+    rankedHistory.length > 0 ? Math.round(rankedHistory.reduce((sum, h) => sum + h.cpm, 0) / rankedHistory.length) : 0;
   const avgAccuracy =
-    userHistory.length > 0
-      ? parseFloat((userHistory.reduce((sum, h) => sum + h.accuracy, 0) / userHistory.length).toFixed(1))
+    rankedHistory.length > 0
+      ? parseFloat((rankedHistory.reduce((sum, h) => sum + h.accuracy, 0) / rankedHistory.length).toFixed(1))
       : 0;
 
   const userEffortScore = calculateCumulativeEffortScore({
@@ -564,7 +571,7 @@ export function getClassLeaderboard(
         peakCpm,
         avgAccuracy,
       }),
-      lastActive: userHistory.length > 0 ? '방금 전' : '활동 대기',
+        lastActive: rankedHistory.length > 0 ? '방금 전' : '활동 대기',
     });
   }
 
@@ -572,8 +579,10 @@ export function getClassLeaderboard(
     if (profile.accountId && acc.id === profile.accountId) continue;
     if (hasUserSession && acc.studentNum === profile.studentNum) continue;
 
-    const peerHistory = userHistory.filter(
-      (h) => h.studentProfile?.accountId === acc.id || h.studentProfile?.studentNum === acc.studentNum
+    const peerHistory = rankingSessions(
+      userHistory.filter(
+        (h) => h.studentProfile?.accountId === acc.id || h.studentProfile?.studentNum === acc.studentNum
+      )
     );
     const peerChars = peerHistory.reduce((sum, h) => sum + h.totalChars, 0);
     const peerStrokes = peerHistory.reduce((sum, h) => sum + h.totalStrokes, 0);

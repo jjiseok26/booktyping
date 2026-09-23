@@ -3,12 +3,17 @@ import { BookReport, StudentAccount, StudentRankRecord, TypingSessionResult } fr
 type ApiResult<T> = T & { success?: boolean; message?: string };
 
 async function request<T>(path: string, init?: RequestInit): Promise<ApiResult<T>> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...((init?.headers || {}) as Record<string, string>),
+  };
+  if (!headers.Authorization) {
+    const studentToken = getStudentToken();
+    if (studentToken) headers.Authorization = `Bearer ${studentToken}`;
+  }
   const response = await fetch(path, {
     ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers || {}),
-    },
+    headers,
   });
   const data = (await response.json().catch(() => ({}))) as ApiResult<T>;
   if (!response.ok) {
@@ -35,10 +40,12 @@ export async function apiRegisterStudent(payload: {
   name: string;
 }): Promise<{ success: boolean; message: string; account?: StudentAccount }> {
   try {
-    return await request('/api/students', {
+    const data = await request<{ account?: StudentAccount; token?: string }>('/api/students', {
       method: 'POST',
       body: JSON.stringify(payload),
     });
+    if (data.token) setStudentToken(data.token);
+    return { success: Boolean(data.success), message: data.message || '', account: data.account };
   } catch (error) {
     return { success: false, message: error instanceof Error ? error.message : '회원가입에 실패했습니다.' };
   }
@@ -53,10 +60,12 @@ export async function apiLoginStudent(payload: {
   name: string;
 }): Promise<{ success: boolean; message: string; account?: StudentAccount }> {
   try {
-    return await request('/api/student-login', {
+    const data = await request<{ account?: StudentAccount; token?: string }>('/api/student-login', {
       method: 'POST',
       body: JSON.stringify(payload),
     });
+    if (data.token) setStudentToken(data.token);
+    return { success: Boolean(data.success), message: data.message || '', account: data.account };
   } catch (error) {
     return { success: false, message: error instanceof Error ? error.message : '로그인에 실패했습니다.' };
   }
@@ -136,6 +145,7 @@ export async function apiGetLeaderboard(params: {
 }
 
 const ADMIN_TOKEN_KEY = 'literary_typing_admin_token';
+const STUDENT_TOKEN_KEY = 'literary_typing_student_token';
 
 export function getAdminToken(): string {
   if (typeof window === 'undefined') return '';
@@ -146,6 +156,17 @@ export function setAdminToken(token: string | null): void {
   if (typeof window === 'undefined') return;
   if (token) localStorage.setItem(ADMIN_TOKEN_KEY, token);
   else localStorage.removeItem(ADMIN_TOKEN_KEY);
+}
+
+export function getStudentToken(): string {
+  if (typeof window === 'undefined') return '';
+  return localStorage.getItem(STUDENT_TOKEN_KEY) || '';
+}
+
+export function setStudentToken(token: string | null): void {
+  if (typeof window === 'undefined') return;
+  if (token) localStorage.setItem(STUDENT_TOKEN_KEY, token);
+  else localStorage.removeItem(STUDENT_TOKEN_KEY);
 }
 
 async function adminRequest<T>(path: string, init?: RequestInit): Promise<ApiResult<T>> {
@@ -392,7 +413,18 @@ export async function apiAdminUpdateStudent(
   return data.students || [];
 }
 
-export async function apiAdminApproveTeacher(id: string) {
+export async function apiAdminUpdateTeacher(
+  id: string,
+  payload: {
+    schoolName?: string;
+    username?: string;
+    password?: string;
+    grade?: number;
+    classNum?: number;
+    schoolAdmin?: boolean;
+    approved?: boolean;
+  }
+) {
   const data = await adminRequest<{
     teachers?: Array<{
       id: string;
@@ -407,9 +439,13 @@ export async function apiAdminApproveTeacher(id: string) {
     }>;
   }>(`/api/admin-teachers?id=${encodeURIComponent(id)}`, {
     method: 'PATCH',
-    body: JSON.stringify({ approved: true }),
+    body: JSON.stringify(payload),
   });
   return data.teachers || [];
+}
+
+export async function apiAdminApproveTeacher(id: string) {
+  return apiAdminUpdateTeacher(id, { approved: true });
 }
 
 export async function apiAdminDeleteTeacher(id: string) {

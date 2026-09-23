@@ -52,6 +52,7 @@ export function readStaffToken(token) {
   try {
     const data = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
     if (!data.u || typeof data.exp !== 'number' || data.exp < Date.now()) return null;
+    if (data.role === 'student') return null;
     const role =
       data.role === 'school_admin' ? 'school_admin' : data.role === 'teacher' ? 'teacher' : 'admin';
     return {
@@ -61,6 +62,37 @@ export function readStaffToken(token) {
       grade: Number(data.grade || 0),
       classNum: Number(data.classNum || 0),
     };
+  } catch {
+    return null;
+  }
+}
+
+export function signStudentToken(studentId) {
+  const body = Buffer.from(
+    JSON.stringify({
+      s: String(studentId || ''),
+      role: 'student',
+      exp: Date.now() + SESSION_MS,
+    })
+  ).toString('base64url');
+  const signature = createHmac('sha256', tokenSecret()).update(body).digest('hex');
+  return `${body}.${signature}`;
+}
+
+export function readStudentToken(token) {
+  if (!token) return null;
+  const [body, signature] = String(token).split('.');
+  if (!body || !signature) return null;
+  const expected = createHmac('sha256', tokenSecret()).update(body).digest('hex');
+  try {
+    if (!timingSafeEqual(Buffer.from(signature, 'hex'), Buffer.from(expected, 'hex'))) return null;
+  } catch {
+    return null;
+  }
+  try {
+    const data = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+    if (data.role !== 'student' || !data.s || typeof data.exp !== 'number' || data.exp < Date.now()) return null;
+    return { studentId: String(data.s) };
   } catch {
     return null;
   }

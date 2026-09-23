@@ -4,7 +4,7 @@ import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypt
 import { DatabaseSync } from 'node:sqlite';
 import type { BookReport, StudentAccount, StudentRankRecord, TypingSessionResult } from '../src/types';
 import { expandSchoolName } from '../src/utils/schoolName';
-import { calculateCumulativeEffortScore, getTitleBadge } from '../src/utils/storage';
+import { calculateCumulativeEffortScore, getTitleBadge, RANKING_MIN_ACCURACY } from '../src/utils/storage';
 import {
   DEFAULT_ADMIN_PASSWORD,
   DEFAULT_ADMIN_USERNAME,
@@ -614,7 +614,7 @@ export async function getLeaderboard(filter: {
       COALESCE(AVG(ts.accuracy), 0) AS avg_accuracy,
       COALESCE(MAX(ts.created_at), 0) AS last_session_at
      FROM students s
-     LEFT JOIN typing_sessions ts ON ts.student_id = s.id
+     LEFT JOIN typing_sessions ts ON ts.student_id = s.id AND ts.accuracy >= ${RANKING_MIN_ACCURACY}
      WHERE s.school_year = ? AND s.school_name = ? AND s.grade = ? ${classSql}
      GROUP BY s.id, s.school_year, s.school_name, s.grade, s.class_num, s.student_num, s.name
      ORDER BY s.class_num, s.student_num`,
@@ -937,11 +937,13 @@ export async function createTeacher(data: {
   const grade = schoolAdmin ? 0 : Number(data.grade || 0);
   const classNum = schoolAdmin ? 0 : Number(data.classNum || 0);
   if (!schoolName) return { success: false, message: '학교명을 입력해주세요.' };
-  if (!username) return { success: false, message: '교사 아이디를 입력해주세요.' };
+  if (!isTeacherUsername(username)) {
+    return { success: false, message: '아이디는 3~32자의 영문, 숫자, 점, 밑줄, 하이픈만 사용할 수 있습니다.' };
+  }
   if (username === expectedAdminUser()) {
     return { success: false, message: '관리자 아이디와 같은 이름은 사용할 수 없습니다.' };
   }
-  if (password.length < 4) return { success: false, message: '비밀번호는 4자 이상 입력해주세요.' };
+  if (password.length < 8) return { success: false, message: '비밀번호는 8자 이상 입력해주세요.' };
   if (!schoolAdmin && (!Number.isInteger(grade) || grade < 1 || !Number.isInteger(classNum) || classNum < 1)) {
     return { success: false, message: '담임교사는 학년과 반을 입력해주세요.' };
   }
@@ -989,12 +991,104 @@ export async function registerTeacher(data: {
 }
 
 export async function approveTeacher(id: string): Promise<{ success: boolean; message: string; teachers: TeacherAccount[] }> {
-  const rows = await query('SELECT id FROM teachers WHERE id = ? LIMIT 1', [id]);
+  const result = await updateTeacher(id, { approved: true });
+  if (result.success) result.message = '교사 가입을 승인했습니다.';
+  return result;
+}
+
+function isTeacherUsername(username: string): boolean {
+  return /^[a-zA-Z0-9._-]{3,32}$/.test(username);
+}
+
+export async function updateTeacher(
+  id: string,
+  patch: {
+    schoolName?: string;
+    username?: string;
+    password?: string;
+    grade?: number;
+    classNum?: number;
+    schoolAdmin?: boolean;
+    approved?: boolean;
+  },
+  allowedSchool?: string
+): Promise<{ success: boolean; message: string; teachers: TeacherAccount[] }> {
+  const rows = await query('SELECT * FROM teachers WHERE id = ? LIMIT 1', [id]);
   if (!rows[0]) {
-    return { success: false, message: '교사 계정을 찾을 수 없습니다.', teachers: await listTeachers() };
+    return { success: false, message: '교사 계정을 찾을 수 없습니다.', teachers: await listTeachers(allowedSchool) };
   }
-  await run('UPDATE teachers SET approved = 1 WHERE id = ?', [id]);
-  return { success: true, message: '교사 가입을 승인했습니다.', teachers: await listTeachers() };
+  const current = mapTeacher(rows[0]);
+  if (allowedSchool && current.schoolName !== allowedSchool) {
+    return { success: false, message: '해당 학교 교사만 수정할 수 있습니다.', teachers: await listTeachers(allowedSchool) };
+  }
+
+  const schoolName =
+    patch.schoolName === undefined ? current.schoolName : expandSchoolName(String(patch.schoolName));
+  if (!schoolName) {
+    return { success: false, message: '학교명을 입력해주세요.', teachers: await listTeachers(allowedSchool) };
+  }
+  if (allowedSchool && schoolName !== allowedSchool) {
+    return { success: false, message: '다른 학교로 옮길 수 없습니다.', teachers: await listTeachers(allowedSchool) };
+  }
+
+  const username = patch.username === undefined ? current.username : String(patch.username).trim();
+  if (!isTeacherUsername(username)) {
+    return {
+      success: false,
+      message: '아이디는 3~32자의 영문, 숫자, 점, 밑줄, 하이픈만 사용할 수 있습니다.',
+      teachers: await listTeachers(allowedSchool),
+    };
+  }
+  if (username === expectedAdminUser()) {
+    return {
+      success: false,
+      message: '관리자 아이디와 같은 이름은 사용할 수 없습니다.',
+      teachers: await listTeachers(allowedSchool),
+    };
+  }
+
+  const schoolAdmin =
+    allowedSchool
+      ? current.role === 'school_admin'
+      : patch.schoolAdmin === undefined
+        ? current.role === 'school_admin'
+        : Boolean(patch.schoolAdmin);
+  const grade = schoolAdmin ? 0 : patch.grade === undefined ? current.grade : Number(patch.grade);
+  const classNum = schoolAdmin ? 0 : patch.classNum === undefined ? current.classNum : Number(patch.classNum);
+  if (!schoolAdmin && (!Number.isInteger(grade) || grade < 1 || !Number.isInteger(classNum) || classNum < 1)) {
+    return { success: false, message: '담임교사는 학년과 반을 입력해주세요.', teachers: await listTeachers(allowedSchool) };
+  }
+
+  const approved = patch.approved === undefined ? current.approved : Boolean(patch.approved);
+  const password = patch.password === undefined ? '' : String(patch.password);
+  if (password && password.length < 8) {
+    return { success: false, message: '비밀번호는 8자 이상 입력해주세요.', teachers: await listTeachers(allowedSchool) };
+  }
+
+  try {
+    if (password) {
+      await run(
+        `UPDATE teachers
+         SET school_name = ?, username = ?, password_hash = ?, grade = ?, class_num = ?, is_school_admin = ?, approved = ?
+         WHERE id = ?`,
+        [schoolName, username, hashPassword(password), grade, classNum, schoolAdmin ? 1 : 0, approved ? 1 : 0, id]
+      );
+    } else {
+      await run(
+        `UPDATE teachers
+         SET school_name = ?, username = ?, grade = ?, class_num = ?, is_school_admin = ?, approved = ?
+         WHERE id = ?`,
+        [schoolName, username, grade, classNum, schoolAdmin ? 1 : 0, approved ? 1 : 0, id]
+      );
+    }
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      return { success: false, message: '이미 사용 중인 교사 아이디입니다.', teachers: await listTeachers(allowedSchool) };
+    }
+    throw error;
+  }
+
+  return { success: true, message: '교사 정보를 수정했습니다.', teachers: await listTeachers(allowedSchool) };
 }
 
 export async function createTeachers(
@@ -1040,10 +1134,16 @@ function mapTeacher(row: SqlRow): TeacherAccount {
   };
 }
 
-export async function listTeachers(): Promise<TeacherAccount[]> {
-  const rows = await query(
-    'SELECT * FROM teachers ORDER BY approved ASC, school_name, is_school_admin DESC, grade, class_num, username'
-  );
+export async function listTeachers(schoolName?: string): Promise<TeacherAccount[]> {
+  const scoped = schoolName ? expandSchoolName(schoolName) : '';
+  const rows = scoped
+    ? await query(
+        'SELECT * FROM teachers WHERE school_name = ? ORDER BY approved ASC, is_school_admin DESC, grade, class_num, username',
+        [scoped]
+      )
+    : await query(
+        'SELECT * FROM teachers ORDER BY approved ASC, school_name, is_school_admin DESC, grade, class_num, username'
+      );
   return rows.map(mapTeacher);
 }
 

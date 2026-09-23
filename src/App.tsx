@@ -31,6 +31,7 @@ import {
   apiListReports,
   apiListSessions,
   apiSaveSession,
+  setStudentToken,
 } from './utils/dbClient';
 import { BookOpen, ShieldCheck } from 'lucide-react';
 import { AdminView } from './components/AdminView';
@@ -159,6 +160,7 @@ export default function App() {
   const handleLogoutAccount = () => {
     setCurrentStudentAccount(null);
     setCurrentAccount(null);
+    setStudentToken(null);
     setHistory(getStoredHistory());
     setReports(getStoredBookReports());
   };

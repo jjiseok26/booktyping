@@ -330,7 +330,7 @@ export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
       </div>
 
       {/* Leaderboard Sorting Tabs */}
-      <div className="flex items-center justify-between flex-wrap gap-3 mb-6 pb-2 border-b border-stone-200">
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-2 pb-2 border-b border-stone-200">
         <div className="flex items-center gap-2 flex-wrap">
           <button
             id="tab-sort-effort"
@@ -391,6 +391,7 @@ export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
           </div>
         </div>
       </div>
+      <p className="text-xs text-stone-500 mb-6">정확도 80% 미만 기록은 순위에 반영되지 않습니다.</p>
 
       {/* When no records exist in this class */}
       {sortedRecords.length === 0 && (

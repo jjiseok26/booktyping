@@ -19,10 +19,12 @@ import {
   listAllStudents,
   listSchoolNames,
   approveTeacher,
+  updateTeacher,
   updateStudentAccount,
   deleteStudentAccount,
 } from './db';
 import { rowsToTeachers } from '../src/utils/teacherWorkbook';
+import { readStaffToken, readStudentToken, signStudentToken } from './adminAuth.js';
 
 const dbFile = path.join(process.cwd(), 'data', 'booktyping.check.sqlite');
 
@@ -112,6 +114,35 @@ async function main() {
     throw new Error('leaderboard did not include the saved session');
   }
 
+  await saveSession(login.account.id, {
+    id: 'session-low-accuracy',
+    timestamp: Date.now(),
+    excerptId: 'yoon-seosi',
+    bookTitle: '하늘과 바람과 별과 시',
+    author: '윤동주',
+    excerptTitle: '서시 (序詩)',
+    cpm: 400,
+    wpm: 80,
+    peakCpm: 420,
+    accuracy: 70,
+    errorCount: 20,
+    totalChars: 900,
+    totalStrokes: 900,
+    durationSeconds: 40,
+    mistypedLetters: {},
+    earnedEffortPoints: 10,
+  });
+  const boardAfterLow = await getLeaderboard({
+    schoolYear: '2026학년도',
+    schoolName: '가온중학교',
+    grade: 2,
+    classNum: 3,
+    currentStudentId: login.account.id,
+  });
+  if (boardAfterLow[0]?.totalChars !== 120) {
+    throw new Error(`accuracy below 80% should not count toward ranking: ${boardAfterLow[0]?.totalChars}`);
+  }
+
   await clearSessions(login.account.id);
   const emptied = await listSessions(login.account.id);
   if (emptied.length !== 0) throw new Error('sessions were not cleared');
@@ -185,6 +216,27 @@ async function main() {
   if (teacherRows.some((row) => row.schoolName !== '금구중학교' || row.grade !== 1 || row.classNum !== 1)) {
     throw new Error('teacher class scope leaked other students');
   }
+
+  const teacherEdited = await updateTeacher(teacherCreated.teacher?.id || '', {
+    username: 'geumgu-homeroom',
+    password: 'class5678',
+    schoolName: '금구중',
+  });
+  if (!teacherEdited.success) throw new Error(teacherEdited.message);
+  const teacherRenamedLogin = await loginTeacher('geumgu-homeroom', 'class5678');
+  if (!teacherRenamedLogin.success || teacherRenamedLogin.admin?.schoolName !== '금구중학교') {
+    throw new Error(teacherRenamedLogin.message);
+  }
+  const blockedMove = await updateTeacher(
+    teacherCreated.teacher?.id || '',
+    { schoolName: '가온중' },
+    '금구중학교'
+  );
+  if (blockedMove.success) throw new Error('school admin should not move a teacher to another school');
+
+  const studentTok = signStudentToken('student-1');
+  if (readStudentToken(studentTok)?.studentId !== 'student-1') throw new Error('student token did not round-trip');
+  if (readStaffToken(studentTok)) throw new Error('student token must not be accepted as staff');
 
   const schoolAdminCreated = await createTeacher({
     schoolName: '금구중',
