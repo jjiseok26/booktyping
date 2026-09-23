@@ -13,6 +13,8 @@ import {
   Upload,
   Check,
   BookOpen,
+  Eye,
+  Printer,
 } from 'lucide-react';
 import { BookReport, StudentAccount, TypingSessionResult } from '../types';
 import {
@@ -42,6 +44,7 @@ import {
 import { expandSchoolName } from '../utils/schoolName';
 import { parseTeacherSpreadsheet, TEACHER_CSV_TEMPLATE } from '../utils/teacherWorkbook';
 import { SchoolNameField } from './SchoolNameField';
+import { BookReportPrintSheet } from './BookReportPrintSheet';
 
 type AdminTab = 'overview' | 'students' | 'sessions' | 'reports' | 'teachers';
 type StaffRole = 'admin' | 'teacher' | 'school_admin';
@@ -148,6 +151,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
   const [sessions, setSessions] = useState<TypingSessionResult[]>([]);
   const [selectedSessionKeys, setSelectedSessionKeys] = useState<string[]>([]);
   const [reports, setReports] = useState<BookReport[]>([]);
+  const [viewingReport, setViewingReport] = useState<BookReport | null>(null);
   const [teachers, setTeachers] = useState<TeacherRow[]>([]);
   const [schools, setSchools] = useState<string[]>([]);
   const [teacherSchool, setTeacherSchool] = useState('');
@@ -924,30 +928,48 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
         {tab === 'reports' && (
           <AdminTable
             empty={hasRosterFilter ? '조건에 맞는 독후감이 없습니다.' : '독후감이 없습니다.'}
-            headers={['학급', '학생', '작품', '제목', '별점', '']}
+            headers={['학급', '학생', '작품', '제목', '별점', '작성일', '']}
             rows={filteredReports.map((report) => [
               classLabel(report.studentProfile),
               report.studentProfile?.name || '-',
               report.bookTitle,
               report.title,
               `${report.rating}점`,
-              isAdmin ? (
+              formatSessionWhen(report.createdAt),
+              <span key={report.id} className="flex items-center justify-end gap-2">
                 <button
-                  key={report.id}
-                  className="text-rose-600 hover:text-rose-700"
+                  className="text-stone-500 hover:text-amber-700"
+                  title="독후감 보기"
+                  onClick={() => setViewingReport(report)}
+                >
+                  <Eye className="w-4 h-4" />
+                </button>
+                <button
+                  className="text-stone-500 hover:text-amber-700"
+                  title="독후감 인쇄"
                   onClick={() => {
-                    const studentId = report.studentProfile?.accountId;
-                    if (!studentId || !window.confirm('이 독후감을 삭제할까요?')) return;
-                    void apiAdminDeleteReport(report.id, studentId)
-                      .then(setReports)
-                      .then(() => loadDashboard('admin'));
+                    setViewingReport(report);
+                    window.setTimeout(() => window.print(), 250);
                   }}
                 >
-                  <Trash2 className="w-4 h-4" />
+                  <Printer className="w-4 h-4" />
                 </button>
-              ) : (
-                ''
-              ),
+                {isAdmin ? (
+                  <button
+                    className="text-rose-600 hover:text-rose-700"
+                    title="독후감 삭제"
+                    onClick={() => {
+                      const studentId = report.studentProfile?.accountId;
+                      if (!studentId || !window.confirm('이 독후감을 삭제할까요?')) return;
+                      void apiAdminDeleteReport(report.id, studentId)
+                        .then(setReports)
+                        .then(() => loadDashboard('admin'));
+                    }}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                ) : null}
+              </span>,
             ])}
           />
         )}
@@ -1136,6 +1158,48 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
           </section>
         )}
       </main>
+
+      {viewingReport && (
+        <div
+          id="modal-backdrop-overlay"
+          className="fixed inset-0 z-[70] bg-stone-950/70 flex items-start justify-center p-3 sm:p-6 overflow-y-auto"
+        >
+          <div className="w-full max-w-4xl my-4">
+            <div className="no-print mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-white">
+                  {viewingReport.studentProfile?.name || '학생'} · {viewingReport.bookTitle}
+                </p>
+                <p className="text-xs text-stone-300">
+                  {classLabel(viewingReport.studentProfile)} · {formatSessionWhen(viewingReport.createdAt)}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="px-3 py-2 rounded-xl text-xs font-semibold bg-white text-stone-950 flex items-center gap-1.5"
+                  onClick={() => window.print()}
+                >
+                  <Printer className="w-4 h-4" />
+                  인쇄 / PDF 저장
+                </button>
+                <button
+                  type="button"
+                  className="px-3 py-2 rounded-xl text-xs bg-stone-800 text-stone-100 border border-stone-600"
+                  onClick={() => setViewingReport(null)}
+                >
+                  닫기
+                </button>
+              </div>
+            </div>
+            <div className="print-paper-stage bg-[#c4bfb6] p-4 sm:p-8 rounded-2xl flex justify-center">
+              <div className="print-paper-page w-full max-w-[210mm] min-h-[297mm] bg-white shadow-[0_12px_40px_rgba(0,0,0,0.28)]">
+                <BookReportPrintSheet report={viewingReport} />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {editingStudent && (
         <div className="fixed inset-0 z-40 bg-stone-950/40 flex items-center justify-center p-4">
