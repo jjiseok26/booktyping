@@ -27,6 +27,9 @@ import {
   registerTeacher,
   saveReport,
   saveSession,
+  getTypingProgress,
+  saveTypingProgress,
+  clearTypingProgress,
   updateStudentAccount,
   updateTeacher,
   type AdminAccount,
@@ -94,6 +97,7 @@ app.use((req, _res, next) => {
     '/api/admin-logout': '/api/admin/logout',
     '/api/session-item': '/api/sessions',
     '/api/report-item': '/api/reports',
+    '/api/progress-item': '/api/progress',
     '/api/teacher-register': '/api/teachers/register',
   };
   const mapped = aliases[parsed.pathname];
@@ -320,6 +324,61 @@ app.delete(
     if (!requireStudent(req, res, studentId)) return;
     await clearSessions(studentId);
     res.json({ success: true, sessions: [] });
+  })
+);
+
+app.get(
+  '/api/progress',
+  asyncRoute(async (req, res) => {
+    const studentId = String(req.query.studentId || '');
+    const excerptId = String(req.query.excerptId || '');
+    if (!studentId || !excerptId) {
+      res.status(400).json({ success: false, message: 'studentId와 excerptId가 필요합니다.' });
+      return;
+    }
+    if (!requireStudent(req, res, studentId)) return;
+    res.json({ success: true, progress: await getTypingProgress(studentId, excerptId) });
+  })
+);
+
+app.put(
+  '/api/progress',
+  asyncRoute(async (req, res) => {
+    const studentId = String(req.body?.studentId || '');
+    const progress = req.body?.progress;
+    if (!studentId || !progress?.excerptId) {
+      res.status(400).json({ success: false, message: 'studentId와 필사 진행 정보가 필요합니다.' });
+      return;
+    }
+    if (!requireStudent(req, res, studentId)) return;
+    await saveTypingProgress(studentId, {
+      excerptId: String(progress.excerptId),
+      sentenceIndex: Number(progress.sentenceIndex || 0),
+      userInput: String(progress.userInput || ''),
+      accumulatedCorrectStrokes: Number(progress.accumulatedCorrectStrokes || 0),
+      accumulatedTotalStrokes: Number(progress.accumulatedTotalStrokes || 0),
+      accumulatedChars: Number(progress.accumulatedChars || 0),
+      totalSessionErrors: Number(progress.totalSessionErrors || 0),
+      sessionMistypedLetters: progress.sessionMistypedLetters || {},
+      elapsedSeconds: Number(progress.elapsedSeconds || 0),
+      peakCpm: Number(progress.peakCpm || 0),
+    });
+    res.json({ success: true, progress: await getTypingProgress(studentId, String(progress.excerptId)) });
+  })
+);
+
+app.delete(
+  '/api/progress',
+  asyncRoute(async (req, res) => {
+    const studentId = String(req.query.studentId || '');
+    const excerptId = String(req.query.excerptId || '');
+    if (!studentId || !excerptId) {
+      res.status(400).json({ success: false, message: 'studentId와 excerptId가 필요합니다.' });
+      return;
+    }
+    if (!requireStudent(req, res, studentId)) return;
+    await clearTypingProgress(studentId, excerptId);
+    res.json({ success: true });
   })
 );
 

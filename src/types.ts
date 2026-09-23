@@ -81,6 +81,19 @@ export interface TypingSessionResult {
   earnedEffortPoints?: number;     // 이번 세션에서 획득한 노력 점수
 }
 
+export interface TypingProgress {
+  excerptId: string;
+  sentenceIndex: number;
+  userInput: string;
+  accumulatedCorrectStrokes: number;
+  accumulatedTotalStrokes: number;
+  accumulatedChars: number;
+  totalSessionErrors: number;
+  sessionMistypedLetters: Record<string, number>;
+  elapsedSeconds: number;
+  peakCpm: number;
+}
+
 export interface BookReport {
   id: string;
   createdAt: number;

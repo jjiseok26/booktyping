@@ -11,13 +11,14 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react';
-import { BookExcerpt, TypingSettings, TypingSessionResult, StudentProfile } from '../types';
+import { BookExcerpt, TypingSettings, TypingSessionResult, StudentProfile, TypingProgress } from '../types';
 import { decomposeChar, countTotalStrokes, compareCharAccuracy } from '../utils/hangul';
 import { playKeySound, playCompletionSound } from '../utils/sound';
-import { calculateSessionEffortPoints } from '../utils/storage';
+import { calculateSessionEffortPoints, clearStoredProgress, getStoredProgress, saveStoredProgress } from '../utils/storage';
 import { getTypingSentences } from '../data/books';
 import { SessionCompletionModal } from './SessionCompletionModal';
 import { saveParagraphNote } from '../utils/paragraphNotes';
+import { apiClearProgress, apiGetProgress, apiSaveProgress } from '../utils/dbClient';
 
 interface TypingAreaProps {
   book: BookExcerpt;
@@ -29,6 +30,7 @@ interface TypingAreaProps {
   studentProfile?: StudentProfile;
   onGoToLeaderboard?: () => void;
   onWriteBookReport?: (book: BookExcerpt, result: TypingSessionResult) => void;
+  studentId?: string;
 }
 
 export const TypingArea: React.FC<TypingAreaProps> = ({
@@ -41,6 +43,7 @@ export const TypingArea: React.FC<TypingAreaProps> = ({
   studentProfile,
   onGoToLeaderboard,
   onWriteBookReport,
+  studentId,
 }) => {
   const activeSentences = useMemo(() => getTypingSentences(book), [book]);
 
@@ -68,7 +71,30 @@ export const TypingArea: React.FC<TypingAreaProps> = ({
   const [completedResult, setCompletedResult] = useState<TypingSessionResult | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
+  const skipProgressSave = useRef(true);
   const targetSentence = activeSentences[sentenceIndex] || '';
+
+  const applyProgress = useCallback(
+    (progress: TypingProgress | null) => {
+      const maxIndex = Math.max(0, activeSentences.length - 1);
+      const nextIndex = progress ? Math.min(Math.max(0, progress.sentenceIndex), maxIndex) : 0;
+      setSentenceIndex(nextIndex);
+      setUserInput(progress?.userInput || '');
+      setStartTime(progress && progress.elapsedSeconds > 0 ? Date.now() - progress.elapsedSeconds * 1000 : null);
+      setElapsedSeconds(progress?.elapsedSeconds || 0);
+      setRealtimeCpm(0);
+      setPeakCpm(progress?.peakCpm || 0);
+      setRealtimeAccuracy(100);
+      setErrorCount(0);
+      setAccumulatedCorrectStrokes(progress?.accumulatedCorrectStrokes || 0);
+      setAccumulatedTotalStrokes(progress?.accumulatedTotalStrokes || 0);
+      setAccumulatedChars(progress?.accumulatedChars || 0);
+      setTotalSessionErrors(progress?.totalSessionErrors || 0);
+      setSessionMistypedLetters(progress?.sessionMistypedLetters || {});
+      setCompletedResult(null);
+    },
+    [activeSentences.length]
+  );
 
   // Focus input on mount or sentence change
   useEffect(() => {
@@ -77,23 +103,64 @@ export const TypingArea: React.FC<TypingAreaProps> = ({
     }
   }, [sentenceIndex, book.id]);
 
-  // Reset states when book changes
+  // Restore in-progress typing when the student returns to this work
   useEffect(() => {
-    setSentenceIndex(0);
-    setUserInput('');
-    setStartTime(null);
-    setElapsedSeconds(0);
-    setRealtimeCpm(0);
-    setPeakCpm(0);
-    setRealtimeAccuracy(100);
-    setErrorCount(0);
-    setAccumulatedCorrectStrokes(0);
-    setAccumulatedTotalStrokes(0);
-    setAccumulatedChars(0);
-    setTotalSessionErrors(0);
-    setSessionMistypedLetters({});
-    setCompletedResult(null);
-  }, [book.id]);
+    skipProgressSave.current = true;
+    const local = studentId ? getStoredProgress(studentId, book.id) : null;
+    applyProgress(local);
+    let cancelled = false;
+    if (studentId) {
+      void apiGetProgress(studentId, book.id)
+        .then((remote) => {
+          if (cancelled || !remote) return;
+          saveStoredProgress(studentId, remote);
+          applyProgress(remote);
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          skipProgressSave.current = false;
+        });
+    } else {
+      skipProgressSave.current = false;
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [applyProgress, book.id, studentId]);
+
+  useEffect(() => {
+    if (!studentId || skipProgressSave.current || completedResult) return;
+    const progress: TypingProgress = {
+      excerptId: book.id,
+      sentenceIndex,
+      userInput,
+      accumulatedCorrectStrokes,
+      accumulatedTotalStrokes,
+      accumulatedChars,
+      totalSessionErrors,
+      sessionMistypedLetters,
+      elapsedSeconds,
+      peakCpm,
+    };
+    saveStoredProgress(studentId, progress);
+    const timer = window.setTimeout(() => {
+      void apiSaveProgress(studentId, progress).catch(() => undefined);
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [
+    accumulatedChars,
+    accumulatedCorrectStrokes,
+    accumulatedTotalStrokes,
+    book.id,
+    completedResult,
+    elapsedSeconds,
+    peakCpm,
+    sentenceIndex,
+    sessionMistypedLetters,
+    studentId,
+    totalSessionErrors,
+    userInput,
+  ]);
 
   // Real-time timer tick to keep CPM and duration fresh
   useEffect(() => {
@@ -214,6 +281,10 @@ export const TypingArea: React.FC<TypingAreaProps> = ({
       playCompletionSound(settings.soundVolume);
       onSaveSession(sessionResult);
       setCompletedResult(sessionResult);
+      if (studentId) {
+        clearStoredProgress(studentId, book.id);
+        void apiClearProgress(studentId, book.id).catch(() => undefined);
+      }
     } else {
       // Proceed to next sentence
       setSentenceIndex((prev) => prev + 1);
@@ -238,6 +309,7 @@ export const TypingArea: React.FC<TypingAreaProps> = ({
     sentenceIndex,
     sessionMistypedLetters,
     settings.soundVolume,
+    studentId,
     targetSentence,
     totalSessionErrors,
     userInput,
@@ -323,6 +395,10 @@ export const TypingArea: React.FC<TypingAreaProps> = ({
     setTotalSessionErrors(0);
     setSessionMistypedLetters({});
     setCompletedResult(null);
+    if (studentId) {
+      clearStoredProgress(studentId, book.id);
+      void apiClearProgress(studentId, book.id).catch(() => undefined);
+    }
     if (inputRef.current) {
       inputRef.current.focus();
     }
@@ -364,6 +440,11 @@ export const TypingArea: React.FC<TypingAreaProps> = ({
             <h2 className="font-batang text-xl sm:text-2xl font-bold text-stone-900 mt-0.5">
               {book.title}
             </h2>
+            {studentId && sentenceIndex > 0 && (
+              <p className="text-[11px] text-amber-700 mt-1">
+                이어서 필사 중 · {sentenceIndex + 1} / {activeSentences.length}문장
+              </p>
+            )}
           </div>
         </div>
 

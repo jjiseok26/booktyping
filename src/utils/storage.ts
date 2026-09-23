@@ -1,4 +1,4 @@
-import { TypingSessionResult, TypingSettings, StudentProfile, StudentRankRecord, RankSortMode, BookReport, StudentAccount } from '../types';
+import { TypingSessionResult, TypingSettings, StudentProfile, StudentRankRecord, RankSortMode, BookReport, StudentAccount, TypingProgress } from '../types';
 
 const STORAGE_KEYS = {
   HISTORY: 'literary_typing_history_v2',
@@ -9,6 +9,7 @@ const STORAGE_KEYS = {
   STUDENT_ACCOUNTS: 'literary_typing_student_accounts_v2',
   CURRENT_STUDENT_ACCOUNT: 'literary_typing_current_student_account_v2',
   RECENT_ACCOUNTS: 'literary_typing_recent_accounts_v2',
+  TYPING_PROGRESS: 'literary_typing_progress_v1',
 };
 
 export const INITIAL_GUEST_PROFILE: StudentProfile = {
@@ -92,6 +93,37 @@ export function saveStoredSettings(settings: TypingSettings): void {
   } catch (e) {
     console.error('Failed to save settings', e);
   }
+}
+
+type ProgressStore = Record<string, Record<string, TypingProgress>>;
+
+function readProgressStore(): ProgressStore {
+  if (typeof window === 'undefined') return {};
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEYS.TYPING_PROGRESS) || '{}') as ProgressStore;
+  } catch {
+    return {};
+  }
+}
+
+export function getStoredProgress(studentId: string, excerptId: string): TypingProgress | null {
+  if (!studentId || !excerptId) return null;
+  return readProgressStore()[studentId]?.[excerptId] || null;
+}
+
+export function saveStoredProgress(studentId: string, progress: TypingProgress): void {
+  if (typeof window === 'undefined' || !studentId || !progress.excerptId) return;
+  const store = readProgressStore();
+  store[studentId] = { ...(store[studentId] || {}), [progress.excerptId]: progress };
+  localStorage.setItem(STORAGE_KEYS.TYPING_PROGRESS, JSON.stringify(store));
+}
+
+export function clearStoredProgress(studentId: string, excerptId: string): void {
+  if (typeof window === 'undefined' || !studentId || !excerptId) return;
+  const store = readProgressStore();
+  if (!store[studentId]) return;
+  delete store[studentId][excerptId];
+  localStorage.setItem(STORAGE_KEYS.TYPING_PROGRESS, JSON.stringify(store));
 }
 
 // Student Profile Management

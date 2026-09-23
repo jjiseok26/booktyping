@@ -50,6 +50,21 @@ export default function App() {
     grade: number;
     classNum: number;
   } | null>(null);
+
+  useEffect(() => {
+    const applyHash = () => {
+      const hash = window.location.hash;
+      if (hash === '#teacher') {
+        setStaffLoginMode('teacher');
+        setCurrentView('admin');
+      } else if (hash === '#admin') {
+        setStaffLoginMode('admin');
+        setCurrentView('admin');
+      }
+    };
+    window.addEventListener('hashchange', applyHash);
+    return () => window.removeEventListener('hashchange', applyHash);
+  }, []);
   const [selectedBook, setSelectedBook] = useState<BookExcerpt>(PUBLIC_DOMAIN_BOOKS[0]);
   const [history, setHistory] = useState<TypingSessionResult[]>([]);
   const [settings, setSettings] = useState<TypingSettings>(getStoredSettings());
@@ -244,6 +259,7 @@ export default function App() {
   return (
     <div className={`min-h-screen flex flex-col bg-[#fbfaf8] text-stone-900 font-sans-kr selection:bg-amber-100 selection:text-amber-950 ${currentView === 'admin' ? '' : 'md:pl-56'}`}>
       {currentView === 'admin' ? (
+        <div className="fixed inset-0 z-[60]">
         <AdminView
           loginMode={staffLoginMode}
           onBrowseStudentView={(staff) => {
@@ -292,6 +308,7 @@ export default function App() {
             setCurrentView('typing');
           }}
         />
+        </div>
       ) : (
         <>
       {/* Top Navigation & Controls Bar */}
@@ -327,6 +344,7 @@ export default function App() {
             studentProfile={studentProfile}
             onGoToLeaderboard={() => setCurrentView('leaderboard')}
             onWriteBookReport={(book, result) => handleOpenReportModal(undefined, book, result)}
+            studentId={staffBrowse ? undefined : currentAccount?.id}
           />
         )}
 

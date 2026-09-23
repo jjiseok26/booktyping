@@ -93,6 +93,18 @@ function classLabel(person?: { grade?: number; classNum?: number; studentNum?: n
   return `${person.grade}학년 ${person.classNum}반 ${person.studentNum}번`;
 }
 
+function formatSessionWhen(timestamp: number): string {
+  if (!timestamp) return '-';
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return '-';
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  const h = String(date.getHours()).padStart(2, '0');
+  const min = String(date.getMinutes()).padStart(2, '0');
+  return `${y}.${m}.${d} ${h}:${min}`;
+}
+
 function matchesRoster(
   person: { name?: string; grade?: number; classNum?: number; studentNum?: number } | undefined,
   filters: { grade: string; classNum: string; studentNum: string; text: string },
@@ -883,7 +895,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
             )}
             <AdminTable
               empty={hasRosterFilter ? '조건에 맞는 필사 기록이 없습니다. 학생 이름이나 학년·반·번호를 바꿔 보세요.' : '필사 기록이 없습니다.'}
-              headers={['선택', '학급', '학생', '작품', '타수', '정확도', '글자 수']}
+              headers={['선택', '일시', '학급', '학생', '작품', '타수', '정확도', '글자 수']}
               rows={filteredSessions.map((session) => {
                 const studentId = session.studentProfile?.accountId || '';
                 const key = sessionRecordKey(session);
@@ -896,6 +908,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
                     onChange={() => toggleSessionSelected(key)}
                     aria-label={`${session.studentProfile?.name || '학생'} 필사 기록 선택`}
                   />,
+                  formatSessionWhen(session.timestamp),
                   classLabel(session.studentProfile),
                   session.studentProfile?.name || '-',
                   `${session.bookTitle} · ${session.excerptTitle}`,
@@ -1335,13 +1348,13 @@ function StaffShell({
   return (
     <div className={`min-h-screen ${dark ? 'bg-stone-950 text-stone-100' : 'bg-[#fbfaf8] text-stone-900'}`}>
       {bar ? (
-        <header className="fixed top-0 left-0 right-0 z-40 h-16 bg-stone-900 text-stone-100 border-b border-stone-800">
+        <header className="fixed top-0 left-0 right-0 z-[60] h-16 bg-stone-900 text-stone-100 border-b border-stone-800">
           <div className="h-full md:pl-56 px-4 sm:px-6 flex items-center justify-end gap-2">{bar}</div>
         </header>
       ) : null}
       <aside
-        className={`hidden md:flex fixed left-0 bottom-0 z-30 w-56 bg-stone-900 text-stone-100 border-r border-stone-800 flex-col shadow-xl ${
-          bar ? 'top-0 pt-16' : 'inset-y-0'
+        className={`hidden md:flex fixed left-0 inset-y-0 z-50 w-56 bg-stone-900 text-stone-100 border-r border-stone-800 flex-col shadow-xl ${
+          bar ? 'pt-16' : ''
         }`}
       >
         <div className="px-4 pt-5 pb-4 border-b border-stone-800">

@@ -39,6 +39,16 @@ CREATE TABLE IF NOT EXISTS typing_sessions (
 
 CREATE INDEX IF NOT EXISTS idx_sessions_student ON typing_sessions (student_id, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS typing_progress (
+  student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  excerpt_id TEXT NOT NULL,
+  sentence_index INTEGER NOT NULL,
+  user_input TEXT NOT NULL DEFAULT '',
+  payload TEXT NOT NULL DEFAULT '{}',
+  updated_at BIGINT NOT NULL,
+  PRIMARY KEY (student_id, excerpt_id)
+);
+
 CREATE TABLE IF NOT EXISTS book_reports (
   id TEXT PRIMARY KEY,
   student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,

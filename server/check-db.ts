@@ -9,6 +9,9 @@ import {
   registerStudent,
   resetSchemaCache,
   saveSession,
+  getTypingProgress,
+  saveTypingProgress,
+  clearTypingProgress,
   DEFAULT_ADMIN_PASSWORD,
   DEFAULT_ADMIN_USERNAME,
   loginAdmin,
@@ -146,6 +149,26 @@ async function main() {
   const afterOneDelete = await deleteSession('session-low-accuracy', login.account.id);
   if (afterOneDelete.length !== 1 || afterOneDelete[0].id !== 'session-1') {
     throw new Error('selected session was not deleted');
+  }
+  await saveTypingProgress(login.account.id, {
+    excerptId: 'work-1',
+    sentenceIndex: 4,
+    userInput: '이어서',
+    accumulatedCorrectStrokes: 20,
+    accumulatedTotalStrokes: 22,
+    accumulatedChars: 18,
+    totalSessionErrors: 1,
+    sessionMistypedLetters: {},
+    elapsedSeconds: 30,
+    peakCpm: 180,
+  });
+  const resumed = await getTypingProgress(login.account.id, 'work-1');
+  if (!resumed || resumed.sentenceIndex !== 4 || resumed.userInput !== '이어서') {
+    throw new Error('typing progress was not restored');
+  }
+  await clearTypingProgress(login.account.id, 'work-1');
+  if (await getTypingProgress(login.account.id, 'work-1')) {
+    throw new Error('typing progress was not cleared');
   }
 
   await clearSessions(login.account.id);

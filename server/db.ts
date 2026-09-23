@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
-import type { BookReport, StudentAccount, StudentRankRecord, TypingSessionResult } from '../src/types';
+import type { BookReport, StudentAccount, StudentRankRecord, TypingProgress, TypingSessionResult } from '../src/types';
 import { expandSchoolName } from '../src/utils/schoolName';
 import { calculateCumulativeEffortScore, getTitleBadge, RANKING_MIN_ACCURACY } from '../src/utils/storage';
 import {
@@ -251,6 +251,15 @@ async function migrateExtraColumns(): Promise<void> {
       is_school_admin INTEGER NOT NULL DEFAULT 0,
       created_at BIGINT NOT NULL,
       last_login_at BIGINT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS typing_progress (
+      student_id TEXT NOT NULL,
+      excerpt_id TEXT NOT NULL,
+      sentence_index INTEGER NOT NULL,
+      user_input TEXT NOT NULL DEFAULT '',
+      payload TEXT NOT NULL DEFAULT '{}',
+      updated_at BIGINT NOT NULL,
+      PRIMARY KEY (student_id, excerpt_id)
     )`,
   ];
   for (const sql of statements) {
@@ -1341,6 +1350,70 @@ export async function listAllReports(limit = 200, scope?: StaffScope | string): 
     };
     return report;
   });
+}
+
+function mapProgress(row: SqlRow): TypingProgress {
+  let payload: Partial<TypingProgress> = {};
+  try {
+    payload = JSON.parse(String(row.payload || '{}'));
+  } catch {
+    payload = {};
+  }
+  let mistyped: Record<string, number> = {};
+  try {
+    mistyped = payload.sessionMistypedLetters && typeof payload.sessionMistypedLetters === 'object'
+      ? payload.sessionMistypedLetters
+      : {};
+  } catch {
+    mistyped = {};
+  }
+  return {
+    excerptId: String(row.excerpt_id),
+    sentenceIndex: Number(row.sentence_index || 0),
+    userInput: String(row.user_input || ''),
+    accumulatedCorrectStrokes: Number(payload.accumulatedCorrectStrokes || 0),
+    accumulatedTotalStrokes: Number(payload.accumulatedTotalStrokes || 0),
+    accumulatedChars: Number(payload.accumulatedChars || 0),
+    totalSessionErrors: Number(payload.totalSessionErrors || 0),
+    sessionMistypedLetters: mistyped,
+    elapsedSeconds: Number(payload.elapsedSeconds || 0),
+    peakCpm: Number(payload.peakCpm || 0),
+  };
+}
+
+export async function getTypingProgress(studentId: string, excerptId: string): Promise<TypingProgress | null> {
+  const rows = await query(
+    'SELECT * FROM typing_progress WHERE student_id = ? AND excerpt_id = ? LIMIT 1',
+    [studentId, excerptId]
+  );
+  return rows[0] ? mapProgress(rows[0]) : null;
+}
+
+export async function saveTypingProgress(studentId: string, progress: TypingProgress): Promise<void> {
+  const now = Date.now();
+  const payload = JSON.stringify({
+    accumulatedCorrectStrokes: progress.accumulatedCorrectStrokes,
+    accumulatedTotalStrokes: progress.accumulatedTotalStrokes,
+    accumulatedChars: progress.accumulatedChars,
+    totalSessionErrors: progress.totalSessionErrors,
+    sessionMistypedLetters: progress.sessionMistypedLetters || {},
+    elapsedSeconds: progress.elapsedSeconds,
+    peakCpm: progress.peakCpm,
+  });
+  await run(
+    `INSERT INTO typing_progress (student_id, excerpt_id, sentence_index, user_input, payload, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(student_id, excerpt_id) DO UPDATE SET
+       sentence_index = excluded.sentence_index,
+       user_input = excluded.user_input,
+       payload = excluded.payload,
+       updated_at = excluded.updated_at`,
+    [studentId, progress.excerptId, Math.max(0, Math.floor(progress.sentenceIndex || 0)), String(progress.userInput || '').slice(0, 4000), payload, now]
+  );
+}
+
+export async function clearTypingProgress(studentId: string, excerptId: string): Promise<void> {
+  await run('DELETE FROM typing_progress WHERE student_id = ? AND excerpt_id = ?', [studentId, excerptId]);
 }
 
 export function resetSchemaCache(): void {

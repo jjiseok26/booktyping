@@ -1,4 +1,4 @@
-import { BookReport, StudentAccount, StudentRankRecord, TypingSessionResult } from '../types';
+import { BookReport, StudentAccount, StudentRankRecord, TypingProgress, TypingSessionResult } from '../types';
 
 type ApiResult<T> = T & { success?: boolean; message?: string };
 
@@ -99,6 +99,27 @@ export async function apiDeleteSession(studentId: string, sessionId: string): Pr
 
 export async function apiClearSessions(studentId: string): Promise<void> {
   await request(`/api/sessions?studentId=${encodeURIComponent(studentId)}`, { method: 'DELETE' });
+}
+
+export async function apiGetProgress(studentId: string, excerptId: string): Promise<TypingProgress | null> {
+  const data = await request<{ progress?: TypingProgress | null }>(
+    `/api/progress-item?studentId=${encodeURIComponent(studentId)}&excerptId=${encodeURIComponent(excerptId)}`
+  );
+  return data.progress || null;
+}
+
+export async function apiSaveProgress(studentId: string, progress: TypingProgress): Promise<void> {
+  await request('/api/progress-item', {
+    method: 'PUT',
+    body: JSON.stringify({ studentId, progress }),
+  });
+}
+
+export async function apiClearProgress(studentId: string, excerptId: string): Promise<void> {
+  await request(
+    `/api/progress-item?studentId=${encodeURIComponent(studentId)}&excerptId=${encodeURIComponent(excerptId)}`,
+    { method: 'DELETE' }
+  );
 }
 
 export async function apiListReports(studentId: string): Promise<BookReport[]> {
