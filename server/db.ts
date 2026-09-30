@@ -14,7 +14,7 @@ import {
   secretsEqual,
   signStaffToken,
 } from './adminAuth.js';
-import { openRow, seal, sealValue } from './crypto.js';
+import { open } from './crypto.js';
 
 export { DEFAULT_ADMIN_PASSWORD, DEFAULT_ADMIN_USERNAME };
 
@@ -118,13 +118,12 @@ async function execParams(sql: string, params: unknown[] = []): Promise<void> {
 
 async function query<T extends SqlRow = SqlRow>(sql: string, params: unknown[] = []): Promise<T[]> {
   await ensureSchema();
-  const rows = await queryRaw<T>(sql, params.map(sealValue));
-  return rows.map((row) => openRow(row));
+  return queryRaw<T>(sql, params);
 }
 
 async function run(sql: string, params: unknown[] = []): Promise<void> {
   await ensureSchema();
-  await execParams(sql, params.map(sealValue));
+  await execParams(sql, params);
 }
 
 async function ensureSchema(): Promise<void> {
@@ -140,7 +139,7 @@ async function ensureSchema(): Promise<void> {
     }
     schemaReady = true;
     await migrateExtraColumns();
-    await migrateEncryptAtRest();
+    await migrateDecryptAtRest();
   }
   if (seedingAdmin) return;
   seedingAdmin = true;
@@ -351,60 +350,64 @@ async function runRaw(sql: string): Promise<void> {
   getSqlite().exec(sql);
 }
 
-function sealRow(row: SqlRow): SqlRow {
+function openRowStrings(row: SqlRow): SqlRow {
   const next: SqlRow = {};
   for (const [key, value] of Object.entries(row)) {
-    next[key] = typeof value === 'string' ? seal(value) : value;
+    next[key] = typeof value === 'string' ? open(value) : value;
   }
   return next;
 }
 
-async function updateSealedRow(table: string, pk: string, currentPk: string, sealed: SqlRow): Promise<void> {
-  const columns = Object.keys(sealed);
+async function updateRow(table: string, pk: string, currentPk: string, next: SqlRow): Promise<void> {
+  const columns = Object.keys(next);
   if (columns.length === 0) return;
   const assignments = columns.map((column) => `${column} = ?`).join(', ');
   await execParams(`UPDATE ${table} SET ${assignments} WHERE ${pk} = ?`, [
-    ...columns.map((column) => sealed[column]),
+    ...columns.map((column) => next[column]),
     currentPk,
   ]);
 }
 
-async function migrateEncryptAtRest(): Promise<void> {
-  const students = await queryRaw('SELECT * FROM students');
-  for (const row of students) {
-    const plainId = String(row.id);
-    const nextId = seal(plainId);
-    if (plainId !== nextId) {
-      await execParams('UPDATE typing_sessions SET student_id = ? WHERE student_id = ?', [nextId, plainId]);
-      await execParams('UPDATE book_reports SET student_id = ? WHERE student_id = ?', [nextId, plainId]);
-      await execParams('UPDATE typing_progress SET student_id = ? WHERE student_id = ?', [nextId, plainId]);
+async function migrateDecryptAtRest(): Promise<void> {
+  try {
+    const students = await queryRaw('SELECT * FROM students');
+    for (const row of students) {
+      const storedId = String(row.id);
+      const plainId = open(storedId);
+      if (storedId !== plainId) {
+        await execParams('UPDATE typing_sessions SET student_id = ? WHERE student_id = ?', [plainId, storedId]);
+        await execParams('UPDATE book_reports SET student_id = ? WHERE student_id = ?', [plainId, storedId]);
+        await execParams('UPDATE typing_progress SET student_id = ? WHERE student_id = ?', [plainId, storedId]);
+      }
+      await updateRow('students', 'id', storedId, { ...openRowStrings(row), id: plainId });
     }
-    await updateSealedRow('students', 'id', plainId, { ...sealRow(row), id: nextId });
-  }
 
-  for (const table of ['typing_sessions', 'book_reports', 'teachers', 'admins'] as const) {
-    const rows = await queryRaw(`SELECT * FROM ${table}`);
-    for (const row of rows) {
-      const plainId = String(row.id);
-      await updateSealedRow(table, 'id', plainId, sealRow(row));
+    for (const table of ['typing_sessions', 'book_reports', 'teachers', 'admins'] as const) {
+      const rows = await queryRaw(`SELECT * FROM ${table}`);
+      for (const row of rows) {
+        const storedId = String(row.id);
+        await updateRow(table, 'id', storedId, openRowStrings(row));
+      }
     }
-  }
 
-  const progressRows = await queryRaw('SELECT * FROM typing_progress');
-  for (const row of progressRows) {
-    const sealed = sealRow(row);
-    await execParams(
-      `UPDATE typing_progress
-       SET student_id = ?, excerpt_id = ?, user_input = ?, payload = ?
-       WHERE student_id = ? AND excerpt_id = ?`,
-      [sealed.student_id, sealed.excerpt_id, sealed.user_input, sealed.payload, row.student_id, row.excerpt_id]
-    );
-  }
+    const progressRows = await queryRaw('SELECT * FROM typing_progress');
+    for (const row of progressRows) {
+      const opened = openRowStrings(row);
+      await execParams(
+        `UPDATE typing_progress
+         SET student_id = ?, excerpt_id = ?, user_input = ?, payload = ?
+         WHERE student_id = ? AND excerpt_id = ?`,
+        [opened.student_id, opened.excerpt_id, opened.user_input, opened.payload, row.student_id, row.excerpt_id]
+      );
+    }
 
-  const adminSessions = await queryRaw('SELECT * FROM admin_sessions');
-  for (const row of adminSessions) {
-    const plainToken = String(row.token_hash);
-    await updateSealedRow('admin_sessions', 'token_hash', plainToken, sealRow(row));
+    const adminSessions = await queryRaw('SELECT * FROM admin_sessions');
+    for (const row of adminSessions) {
+      const storedToken = String(row.token_hash);
+      await updateRow('admin_sessions', 'token_hash', storedToken, openRowStrings(row));
+    }
+  } catch {
+    // plaintext databases and missing optional tables are left as-is
   }
 }
 

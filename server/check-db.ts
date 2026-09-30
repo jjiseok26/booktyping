@@ -33,6 +33,7 @@ import {
 import { rowsToTeachers } from '../src/utils/teacherWorkbook';
 import { readStaffToken, readStudentToken, signStudentToken } from './adminAuth.js';
 import { isSealed, open, seal } from './crypto.js';
+import { expandSchoolName } from '../src/utils/schoolName';
 
 const dbFile = path.join(process.cwd(), 'data', 'booktyping.check.sqlite');
 
@@ -456,6 +457,13 @@ async function main() {
   const sealedName = seal('학생이름');
   if (!isSealed(sealedName) || open(sealedName) !== '학생이름' || seal('학생이름') !== sealedName) {
     throw new Error('stored values must round-trip through deterministic encryption');
+  }
+  if (
+    expandSchoolName('금구중') !== '금구중학교' ||
+    expandSchoolName('가온초') !== '가온초등학교' ||
+    expandSchoolName('가온고') !== '가온고등학교'
+  ) {
+    throw new Error('school short names should expand only by appending 학교/등학교');
   }
 
   const lockStudent = await registerStudent({

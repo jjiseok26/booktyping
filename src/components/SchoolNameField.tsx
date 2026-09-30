@@ -1,5 +1,4 @@
 import React, { useMemo, useState } from 'react';
-import { expandSchoolName } from '../utils/schoolName';
 
 interface SchoolNameFieldProps {
   value: string;
@@ -32,14 +31,12 @@ export const SchoolNameField: React.FC<SchoolNameFieldProps> = ({
         type="text"
         value={value}
         onChange={(e) => {
-          onChange(expandSchoolName(e.target.value) || e.target.value);
+          onChange(e.target.value);
           setOpen(true);
         }}
         onFocus={() => setOpen(true)}
         onClick={() => setOpen(true)}
         onBlur={() => {
-          const expanded = expandSchoolName(value);
-          if (expanded !== value) onChange(expanded);
           setTimeout(() => setOpen(false), 180);
         }}
         placeholder={placeholder}
