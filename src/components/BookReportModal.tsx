@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   BookReport,
   BookExcerpt,
@@ -157,7 +158,7 @@ export const BookReportModal: React.FC<BookReportModalProps> = ({
   return (
     <div
       id="modal-backdrop-overlay"
-      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-stone-950/80 backdrop-blur-md overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-stone-950/80 backdrop-blur-md overflow-y-auto print-clip-reset"
     >
       <div className="bg-stone-900 border border-stone-700 rounded-2xl w-full max-w-4xl max-h-[95vh] flex flex-col shadow-2xl text-stone-100 overflow-hidden my-auto">
         {/* Modal Top Nav (No-Print) */}
@@ -536,8 +537,8 @@ export const BookReportModal: React.FC<BookReportModalProps> = ({
               </div>
 
               {/* Printable sheet element */}
-              <div className="print-paper-stage bg-[#c4bfb6] p-4 sm:p-10 rounded-2xl flex justify-center min-h-[70vh]">
-                <div className="print-paper-page w-full max-w-[210mm] min-h-[297mm] bg-white shadow-[0_12px_40px_rgba(0,0,0,0.28)]">
+              <div className="print-preview-stage bg-[#c4bfb6] p-4 sm:p-10 rounded-2xl flex justify-center min-h-[70vh]">
+                <div className="w-full max-w-[210mm] min-h-[297mm] bg-white shadow-[0_12px_40px_rgba(0,0,0,0.28)]">
                   <BookReportPrintSheet report={currentReportObject} />
                 </div>
               </div>
@@ -545,6 +546,14 @@ export const BookReportModal: React.FC<BookReportModalProps> = ({
           )}
         </div>
       </div>
+      {createPortal(
+        <div className="print-paper-stage print-only-sheet">
+          <div className="print-paper-page">
+            <BookReportPrintSheet report={currentReportObject} />
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };

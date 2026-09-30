@@ -14,6 +14,7 @@ import {
   secretsEqual,
   signStaffToken,
 } from './adminAuth.js';
+import { openRow, seal, sealValue } from './crypto.js';
 
 export { DEFAULT_ADMIN_PASSWORD, DEFAULT_ADMIN_USERNAME };
 
@@ -94,8 +95,7 @@ function usePostgres(): boolean {
   return url.startsWith('postgres');
 }
 
-async function query<T extends SqlRow = SqlRow>(sql: string, params: unknown[] = []): Promise<T[]> {
-  await ensureSchema();
+async function queryRaw<T extends SqlRow = SqlRow>(sql: string, params: unknown[] = []): Promise<T[]> {
   if (usePostgres()) {
     const { neon } = await import('@neondatabase/serverless');
     const sqlFn = neon(process.env.DATABASE_URL || process.env.POSTGRES_URL || '');
@@ -103,11 +103,10 @@ async function query<T extends SqlRow = SqlRow>(sql: string, params: unknown[] =
     return (rows as T[]) || [];
   }
   const stmt = getSqlite().prepare(sql);
-  return stmt.all(...(params as never[])) as T[];
+  return (params.length ? stmt.all(...(params as never[])) : stmt.all()) as T[];
 }
 
-async function run(sql: string, params: unknown[] = []): Promise<void> {
-  await ensureSchema();
+async function execParams(sql: string, params: unknown[] = []): Promise<void> {
   if (usePostgres()) {
     const { neon } = await import('@neondatabase/serverless');
     const sqlFn = neon(process.env.DATABASE_URL || process.env.POSTGRES_URL || '');
@@ -115,6 +114,17 @@ async function run(sql: string, params: unknown[] = []): Promise<void> {
     return;
   }
   getSqlite().prepare(sql).run(...(params as never[]));
+}
+
+async function query<T extends SqlRow = SqlRow>(sql: string, params: unknown[] = []): Promise<T[]> {
+  await ensureSchema();
+  const rows = await queryRaw<T>(sql, params.map(sealValue));
+  return rows.map((row) => openRow(row));
+}
+
+async function run(sql: string, params: unknown[] = []): Promise<void> {
+  await ensureSchema();
+  await execParams(sql, params.map(sealValue));
 }
 
 async function ensureSchema(): Promise<void> {
@@ -130,6 +140,7 @@ async function ensureSchema(): Promise<void> {
     }
     schemaReady = true;
     await migrateExtraColumns();
+    await migrateEncryptAtRest();
   }
   if (seedingAdmin) return;
   seedingAdmin = true;
@@ -296,6 +307,9 @@ async function migrateExtraColumns(): Promise<void> {
     'ALTER TABLE teachers ADD COLUMN class_num INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE teachers ADD COLUMN is_school_admin INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE teachers ADD COLUMN approved INTEGER NOT NULL DEFAULT 1',
+    'ALTER TABLE students ADD COLUMN failed_logins INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE teachers ADD COLUMN failed_logins INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE admins ADD COLUMN failed_logins INTEGER NOT NULL DEFAULT 0',
   ];
   for (const sql of teacherAlters) {
     try {
@@ -337,9 +351,93 @@ async function runRaw(sql: string): Promise<void> {
   getSqlite().exec(sql);
 }
 
+function sealRow(row: SqlRow): SqlRow {
+  const next: SqlRow = {};
+  for (const [key, value] of Object.entries(row)) {
+    next[key] = typeof value === 'string' ? seal(value) : value;
+  }
+  return next;
+}
+
+async function updateSealedRow(table: string, pk: string, currentPk: string, sealed: SqlRow): Promise<void> {
+  const columns = Object.keys(sealed);
+  if (columns.length === 0) return;
+  const assignments = columns.map((column) => `${column} = ?`).join(', ');
+  await execParams(`UPDATE ${table} SET ${assignments} WHERE ${pk} = ?`, [
+    ...columns.map((column) => sealed[column]),
+    currentPk,
+  ]);
+}
+
+async function migrateEncryptAtRest(): Promise<void> {
+  const students = await queryRaw('SELECT * FROM students');
+  for (const row of students) {
+    const plainId = String(row.id);
+    const nextId = seal(plainId);
+    if (plainId !== nextId) {
+      await execParams('UPDATE typing_sessions SET student_id = ? WHERE student_id = ?', [nextId, plainId]);
+      await execParams('UPDATE book_reports SET student_id = ? WHERE student_id = ?', [nextId, plainId]);
+      await execParams('UPDATE typing_progress SET student_id = ? WHERE student_id = ?', [nextId, plainId]);
+    }
+    await updateSealedRow('students', 'id', plainId, { ...sealRow(row), id: nextId });
+  }
+
+  for (const table of ['typing_sessions', 'book_reports', 'teachers', 'admins'] as const) {
+    const rows = await queryRaw(`SELECT * FROM ${table}`);
+    for (const row of rows) {
+      const plainId = String(row.id);
+      await updateSealedRow(table, 'id', plainId, sealRow(row));
+    }
+  }
+
+  const progressRows = await queryRaw('SELECT * FROM typing_progress');
+  for (const row of progressRows) {
+    const sealed = sealRow(row);
+    await execParams(
+      `UPDATE typing_progress
+       SET student_id = ?, excerpt_id = ?, user_input = ?, payload = ?
+       WHERE student_id = ? AND excerpt_id = ?`,
+      [sealed.student_id, sealed.excerpt_id, sealed.user_input, sealed.payload, row.student_id, row.excerpt_id]
+    );
+  }
+
+  const adminSessions = await queryRaw('SELECT * FROM admin_sessions');
+  for (const row of adminSessions) {
+    const plainToken = String(row.token_hash);
+    await updateSealedRow('admin_sessions', 'token_hash', plainToken, sealRow(row));
+  }
+}
+
 function isUniqueViolation(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return message.includes('UNIQUE') || message.includes('unique') || message.includes('23505');
+}
+
+const LOGIN_FAIL_LIMIT = 5;
+
+async function bumpLoginFailures(
+  table: 'students' | 'teachers',
+  id: string
+): Promise<{ deleted: boolean; left: number }> {
+  const rows = await query(`SELECT failed_logins FROM ${table} WHERE id = ? LIMIT 1`, [id]);
+  const next = Number(rows[0]?.failed_logins || 0) + 1;
+  if (next >= LOGIN_FAIL_LIMIT) {
+    if (table === 'students') {
+      await deleteStudentAccount(id);
+    } else {
+      await run('DELETE FROM teachers WHERE id = ?', [id]);
+    }
+    return { deleted: true, left: 0 };
+  }
+  await run(`UPDATE ${table} SET failed_logins = ? WHERE id = ?`, [next, id]);
+  return { deleted: false, left: LOGIN_FAIL_LIMIT - next };
+}
+
+function failLoginMessage(result: { deleted: boolean; left: number }, kind: string): string {
+  if (result.deleted) {
+    return `로그인 5회 실패로 해당 ${kind} 아이디가 삭제되었습니다. 다시 회원가입해 주세요.`;
+  }
+  return `로그인 정보가 올바르지 않습니다. 5회 실패 시 아이디가 삭제됩니다. (남은 횟수: ${result.left}회)`;
 }
 
 export async function registerStudent(data: {
@@ -423,14 +521,15 @@ export async function loginStudent(data: {
     };
   }
   if (matched.name.trim() !== name) {
+    const fail = await bumpLoginFailures('students', matched.id);
     return {
       success: false,
-      message: '등록된 학생 성명(암호)과 일치하지 않습니다. 가입 시 입력하셨던 성명을 정확히 입력해 주세요.',
+      message: failLoginMessage(fail, '학생'),
     };
   }
 
   const now = Date.now();
-  await run('UPDATE students SET last_login_at = ? WHERE id = ?', [now, id]);
+  await run('UPDATE students SET last_login_at = ?, failed_logins = 0 WHERE id = ?', [now, matched.id]);
   const account = { ...matched, lastLoginAt: now };
   return {
     success: true,
@@ -819,7 +918,7 @@ export async function loginAdmin(
       lastLoginAt: now,
     };
     try {
-      await run('UPDATE admins SET last_login_at = ? WHERE username = ?', [now, admin.username]);
+      await run('UPDATE admins SET last_login_at = ?, failed_logins = 0 WHERE username = ?', [now, admin.username]);
     } catch {
       // Vercel ephemeral sqlite can miss the row; the signed token is enough to stay logged in.
     }
@@ -834,60 +933,75 @@ export async function loginAdmin(
 
   const adminRows = await query('SELECT * FROM admins WHERE username = ? LIMIT 1', [name]);
   const adminRow = adminRows[0];
-  if (adminRow && verifyPassword(pass, String(adminRow.password_hash))) {
-    const now = Date.now();
-    const admin: AdminAccount = {
-      id: String(adminRow.id),
-      username: String(adminRow.username),
-      role: 'admin',
-      schoolName: '',
-      grade: 0,
-      classNum: 0,
-      createdAt: Number(adminRow.created_at),
-      lastLoginAt: now,
-    };
-    await run('UPDATE admins SET last_login_at = ? WHERE username = ?', [now, admin.username]);
+  if (adminRow) {
+    if (verifyPassword(pass, String(adminRow.password_hash))) {
+      const now = Date.now();
+      const admin: AdminAccount = {
+        id: String(adminRow.id),
+        username: String(adminRow.username),
+        role: 'admin',
+        schoolName: '',
+        grade: 0,
+        classNum: 0,
+        createdAt: Number(adminRow.created_at),
+        lastLoginAt: now,
+      };
+      await run('UPDATE admins SET last_login_at = ?, failed_logins = 0 WHERE username = ?', [now, admin.username]);
+      return {
+        success: true,
+        message: '관리자로 로그인되었습니다.',
+        token: signStaffToken({ u: admin.username, role: 'admin' }),
+        role: 'admin',
+        admin,
+      };
+    }
+    const next = Number(adminRow.failed_logins || 0) + 1;
+    await run('UPDATE admins SET failed_logins = ? WHERE id = ?', [next, String(adminRow.id)]);
     return {
-      success: true,
-      message: '관리자로 로그인되었습니다.',
-      token: signStaffToken({ u: admin.username, role: 'admin' }),
-      role: 'admin',
-      admin,
+      success: false,
+      message:
+        next >= LOGIN_FAIL_LIMIT
+          ? '로그인 실패가 반복되어 관리자 로그인이 잠겼습니다. 비밀번호를 확인한 뒤 다시 시도하세요.'
+          : `아이디 또는 비밀번호가 올바르지 않습니다. (남은 횟수: ${LOGIN_FAIL_LIMIT - next}회)`,
     };
   }
 
   const teacherRows = await query('SELECT * FROM teachers WHERE username = ? LIMIT 1', [name]);
   const teacherRow = teacherRows[0];
-  if (teacherRow && verifyPassword(pass, String(teacherRow.password_hash))) {
-    if (Number(teacherRow.approved ?? 1) === 0) {
-      return { success: false, message: '관리자 승인 후 로그인할 수 있습니다.' };
+  if (teacherRow) {
+    if (verifyPassword(pass, String(teacherRow.password_hash))) {
+      if (Number(teacherRow.approved ?? 1) === 0) {
+        return { success: false, message: '관리자 승인 후 로그인할 수 있습니다.' };
+      }
+      const now = Date.now();
+      const schoolName = String(teacherRow.school_name);
+      const grade = Number(teacherRow.grade || 0);
+      const classNum = Number(teacherRow.class_num || 0);
+      const role: StaffRole = Number(teacherRow.is_school_admin) === 1 ? 'school_admin' : 'teacher';
+      await run('UPDATE teachers SET last_login_at = ?, failed_logins = 0 WHERE id = ?', [now, String(teacherRow.id)]);
+      const admin: AdminAccount = {
+        id: String(teacherRow.id),
+        username: String(teacherRow.username),
+        role,
+        schoolName,
+        grade,
+        classNum,
+        createdAt: Number(teacherRow.created_at),
+        lastLoginAt: now,
+      };
+      return {
+        success: true,
+        message:
+          role === 'school_admin'
+            ? `${schoolName} 최고관리자로 로그인되었습니다.`
+            : `${schoolName} ${grade}학년 ${classNum}반 담임교사로 로그인되었습니다.`,
+        token: signStaffToken({ u: admin.username, role, schoolName, grade, classNum }),
+        role,
+        admin,
+      };
     }
-    const now = Date.now();
-    const schoolName = String(teacherRow.school_name);
-    const grade = Number(teacherRow.grade || 0);
-    const classNum = Number(teacherRow.class_num || 0);
-    const role: StaffRole = Number(teacherRow.is_school_admin) === 1 ? 'school_admin' : 'teacher';
-    await run('UPDATE teachers SET last_login_at = ? WHERE id = ?', [now, String(teacherRow.id)]);
-    const admin: AdminAccount = {
-      id: String(teacherRow.id),
-      username: String(teacherRow.username),
-      role,
-      schoolName,
-      grade,
-      classNum,
-      createdAt: Number(teacherRow.created_at),
-      lastLoginAt: now,
-    };
-    return {
-      success: true,
-      message:
-        role === 'school_admin'
-          ? `${schoolName} 최고관리자로 로그인되었습니다.`
-          : `${schoolName} ${grade}학년 ${classNum}반 담임교사로 로그인되었습니다.`,
-      token: signStaffToken({ u: admin.username, role, schoolName, grade, classNum }),
-      role,
-      admin,
-    };
+    const fail = await bumpLoginFailures('teachers', String(teacherRow.id));
+    return { success: false, message: failLoginMessage(fail, '선생님') };
   }
 
   return { success: false, message: '아이디 또는 비밀번호가 올바르지 않습니다.' };
@@ -901,9 +1015,10 @@ export async function loginTeacher(
   if (!result.success) {
     return {
       success: false,
-      message: result.message.includes('승인')
-        ? result.message
-        : '선생님 아이디 또는 비밀번호가 올바르지 않습니다.',
+      message:
+        result.message === '아이디 또는 비밀번호가 올바르지 않습니다.'
+          ? '선생님 아이디 또는 비밀번호가 올바르지 않습니다.'
+          : result.message,
     };
   }
   if ((result.role !== 'teacher' && result.role !== 'school_admin') || !result.admin?.schoolName) {

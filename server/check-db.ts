@@ -28,9 +28,11 @@ import {
   updateTeacher,
   updateStudentAccount,
   deleteStudentAccount,
+  getStudentById,
 } from './db';
 import { rowsToTeachers } from '../src/utils/teacherWorkbook';
 import { readStaffToken, readStudentToken, signStudentToken } from './adminAuth.js';
+import { isSealed, open, seal } from './crypto.js';
 
 const dbFile = path.join(process.cwd(), 'data', 'booktyping.check.sqlite');
 
@@ -450,6 +452,52 @@ async function main() {
     throw new Error(`school names missing: ${names.join(',')}`);
   }
   await deleteStudentAccount(otherClass.account.id);
+
+  const sealedName = seal('학생이름');
+  if (!isSealed(sealedName) || open(sealedName) !== '학생이름' || seal('학생이름') !== sealedName) {
+    throw new Error('stored values must round-trip through deterministic encryption');
+  }
+
+  const lockStudent = await registerStudent({
+    schoolYear: '2026학년도',
+    schoolName: '가온중학교',
+    grade: 3,
+    classNum: 1,
+    studentNum: 99,
+    name: '잠금학생',
+  });
+  if (!lockStudent.success || !lockStudent.account) throw new Error(lockStudent.message);
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    const fail = await loginStudent({
+      schoolYear: '2026학년도',
+      schoolName: '가온중학교',
+      grade: 3,
+      classNum: 1,
+      studentNum: 99,
+      name: '틀린이름',
+    });
+    if (fail.success) throw new Error('wrong student name should fail');
+    if (attempt < 5 && !fail.message.includes('남은 횟수')) throw new Error(fail.message);
+    if (attempt === 5 && !fail.message.includes('삭제')) throw new Error(fail.message);
+  }
+  if (await getStudentById(lockStudent.account.id)) {
+    throw new Error('student should be deleted after 5 failed logins');
+  }
+
+  const lockTeacher = await createTeacher({
+    schoolName: '가온중',
+    username: 'lock-teacher',
+    password: 'pass1234',
+    grade: 1,
+    classNum: 1,
+  });
+  if (!lockTeacher.success) throw new Error(lockTeacher.message);
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    const fail = await loginTeacher('lock-teacher', 'wrong-pass');
+    if (fail.success) throw new Error('wrong teacher password should fail');
+  }
+  const deletedTeacherLogin = await loginTeacher('lock-teacher', 'pass1234');
+  if (deletedTeacherLogin.success) throw new Error('teacher should be deleted after 5 failed logins');
 
   const parsedTeachers = rowsToTeachers([
     ['학교명', '아이디', '비밀번호', '학년', '반', '구분'],

@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS students (
   name TEXT NOT NULL,
   created_at BIGINT NOT NULL,
   last_login_at BIGINT NOT NULL,
+  failed_logins INTEGER NOT NULL DEFAULT 0,
   UNIQUE (school_year, school_name, grade, class_num, student_num)
 );
 
@@ -82,7 +83,8 @@ CREATE TABLE IF NOT EXISTS teachers (
   is_school_admin INTEGER NOT NULL DEFAULT 0,
   approved INTEGER NOT NULL DEFAULT 1,
   created_at BIGINT NOT NULL,
-  last_login_at BIGINT NOT NULL
+  last_login_at BIGINT NOT NULL,
+  failed_logins INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS admins (
@@ -90,7 +92,8 @@ CREATE TABLE IF NOT EXISTS admins (
   username TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
   created_at BIGINT NOT NULL,
-  last_login_at BIGINT NOT NULL
+  last_login_at BIGINT NOT NULL,
+  failed_logins INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS admin_sessions (

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   LogOut,
   Users,
@@ -1162,7 +1163,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
       {viewingReport && (
         <div
           id="modal-backdrop-overlay"
-          className="fixed inset-0 z-[70] bg-stone-950/70 flex items-start justify-center p-3 sm:p-6 overflow-y-auto"
+          className="fixed inset-0 z-[70] bg-stone-950/70 flex items-start justify-center p-3 sm:p-6 overflow-y-auto print-clip-reset"
         >
           <div className="w-full max-w-4xl my-4">
             <div className="no-print mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -1192,12 +1193,20 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
                 </button>
               </div>
             </div>
-            <div className="print-paper-stage bg-[#c4bfb6] p-4 sm:p-8 rounded-2xl flex justify-center">
-              <div className="print-paper-page w-full max-w-[210mm] min-h-[297mm] bg-white shadow-[0_12px_40px_rgba(0,0,0,0.28)]">
+            <div className="print-preview-stage bg-[#c4bfb6] p-4 sm:p-8 rounded-2xl flex justify-center">
+              <div className="w-full max-w-[210mm] min-h-[297mm] bg-white shadow-[0_12px_40px_rgba(0,0,0,0.28)]">
                 <BookReportPrintSheet report={viewingReport} />
               </div>
             </div>
           </div>
+          {createPortal(
+            <div className="print-paper-stage print-only-sheet">
+              <div className="print-paper-page">
+                <BookReportPrintSheet report={viewingReport} />
+              </div>
+            </div>,
+            document.body
+          )}
         </div>
       )}
 
