@@ -709,15 +709,15 @@ export function getStoredBookReports(): BookReport[] {
 export function saveStoredBookReport(report: BookReport): BookReport[] {
   try {
     const existing = getStoredBookReports();
-    // check if editing existing or adding new
-    const idx = existing.findIndex((r) => r.id === report.id);
+    const idx = existing.findIndex((r) => r.id === report.id || r.excerptId === report.excerptId);
     let updated: BookReport[];
     if (idx >= 0) {
       updated = [...existing];
-      updated[idx] = report;
+      updated[idx] = { ...report, id: existing[idx].id, createdAt: existing[idx].createdAt };
     } else {
       updated = [report, ...existing];
     }
+    updated = updated.filter((item, index, list) => list.findIndex((row) => row.excerptId === item.excerptId) === index);
     localStorage.setItem(STORAGE_KEYS.REPORTS, JSON.stringify(updated));
     return updated;
   } catch (err) {

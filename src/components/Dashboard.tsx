@@ -29,10 +29,11 @@ import {
   ArrowRight,
   FileText,
 } from 'lucide-react';
-import { TypingSessionResult } from '../types';
+import { BookReport, TypingSessionResult } from '../types';
 
 interface DashboardProps {
   history: TypingSessionResult[];
+  reports?: BookReport[];
   onClearHistory: () => void;
   onDeleteRecord: (id: string) => void;
   onStartTyping: () => void;
@@ -41,6 +42,7 @@ interface DashboardProps {
 
 export const Dashboard: React.FC<DashboardProps> = ({
   history,
+  reports,
   onClearHistory,
   onDeleteRecord,
   onStartTyping,
@@ -628,10 +630,18 @@ export const Dashboard: React.FC<DashboardProps> = ({
                             <button
                               onClick={() => onWriteReport(record)}
                               className="px-2 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-800 border border-amber-400/40 text-[11px] font-medium inline-flex items-center gap-1 transition-colors"
-                              title="이 작품의 독후감 작성 및 PDF 인쇄"
+                              title={
+                                reports?.some((item) => item.excerptId === record.excerptId)
+                                  ? '이 작품의 독후감을 수정합니다'
+                                  : '이 작품의 독후감 작성 및 PDF 인쇄'
+                              }
                             >
                               <FileText className="w-3 h-3 text-amber-600" />
-                              <span>독후감</span>
+                              <span>
+                                {reports?.some((item) => item.excerptId === record.excerptId)
+                                  ? '독후감 수정'
+                                  : '독후감'}
+                              </span>
                             </button>
                           )}
                         </td>

@@ -44,7 +44,8 @@ export const BookReportsView: React.FC<BookReportsViewProps> = ({
       return;
     }
     if (completedBooks.length === 1) {
-      onOpenReportModal(undefined, completedBooks[0]);
+      const book = completedBooks[0];
+      onOpenReportModal(reports.find((item) => item.excerptId === book.id), book);
       return;
     }
     setPickerOpen(true);
@@ -271,13 +272,14 @@ export const BookReportsView: React.FC<BookReportsViewProps> = ({
                     type="button"
                     onClick={() => {
                       setPickerOpen(false);
-                      onOpenReportModal(undefined, book);
+                      onOpenReportModal(reports.find((item) => item.excerptId === book.id), book);
                     }}
                     className="w-full text-left px-3 py-2.5 rounded-xl border border-stone-800 hover:border-amber-500/50 hover:bg-amber-500/10 text-stone-200 text-sm"
                   >
                     <span className="font-batang font-bold">{book.title}</span>
                     <span className="block text-[11px] text-stone-400 mt-0.5">
                       《{book.bookTitle}》 · {book.author}
+                      {reports.some((item) => item.excerptId === book.id) ? ' · 기존 독후감 수정' : ''}
                     </span>
                   </button>
                 </li>

@@ -274,6 +274,23 @@ async function migrateExtraColumns(): Promise<void> {
   } catch {
     // column already exists
   }
+  try {
+    await runRaw(`
+      DELETE FROM book_reports
+      WHERE id NOT IN (
+        SELECT keep_id FROM (
+          SELECT MIN(id) AS keep_id FROM book_reports GROUP BY student_id, excerpt_id
+        ) kept
+      )
+    `);
+  } catch {
+    // ignore cleanup failures on empty or already unique tables
+  }
+  try {
+    await runRaw('CREATE UNIQUE INDEX IF NOT EXISTS idx_reports_student_excerpt ON book_reports (student_id, excerpt_id)');
+  } catch {
+    // duplicates may exist until the next save upserts them
+  }
   const teacherAlters = [
     'ALTER TABLE teachers ADD COLUMN grade INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE teachers ADD COLUMN class_num INTEGER NOT NULL DEFAULT 0',
@@ -493,7 +510,11 @@ export async function clearSessions(studentId: string): Promise<void> {
 }
 
 export async function saveReport(studentId: string, report: BookReport): Promise<BookReport[]> {
-  const existing = await query('SELECT id FROM book_reports WHERE id = ? LIMIT 1', [report.id]);
+  const existing = await query(
+    'SELECT id FROM book_reports WHERE student_id = ? AND excerpt_id = ? ORDER BY created_at DESC',
+    [studentId, report.excerptId]
+  );
+  const keepId = existing[0] ? String(existing[0].id) : report.id;
   if (existing[0]) {
     await run(
       `UPDATE book_reports SET
@@ -516,10 +537,13 @@ export async function saveReport(studentId: string, report: BookReport): Promise
         report.content,
         report.personalTakeaway,
         JSON.stringify(report.paragraphNotes || []),
-        report.id,
+        keepId,
         studentId,
       ]
     );
+    for (const extra of existing.slice(1)) {
+      await run('DELETE FROM book_reports WHERE id = ? AND student_id = ?', [String(extra.id), studentId]);
+    }
   } else {
     await run(
       `INSERT INTO book_reports (
@@ -528,7 +552,7 @@ export async function saveReport(studentId: string, report: BookReport): Promise
         memorable_quote, quote_reason, content, personal_takeaway, paragraph_notes, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        report.id,
+        keepId,
         studentId,
         report.excerptId,
         report.bookTitle,

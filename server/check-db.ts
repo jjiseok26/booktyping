@@ -9,6 +9,8 @@ import {
   registerStudent,
   resetSchemaCache,
   saveSession,
+  saveReport,
+  listReports,
   getTypingProgress,
   saveTypingProgress,
   clearTypingProgress,
@@ -174,6 +176,74 @@ async function main() {
   await clearSessions(login.account.id);
   const emptied = await listSessions(login.account.id);
   if (emptied.length !== 0) throw new Error('sessions were not cleared');
+
+  const reportProfile = {
+    schoolYear: login.account.schoolYear,
+    schoolName: login.account.schoolName,
+    grade: login.account.grade,
+    classNum: login.account.classNum,
+    studentNum: login.account.studentNum,
+    name: login.account.name,
+    accountId: login.account.id,
+  };
+  const firstReport = await saveReport(login.account.id, {
+    id: 'report-first',
+    createdAt: Date.now(),
+    excerptId: 'work-1',
+    bookTitle: '책',
+    author: '작가',
+    excerptTitle: '작품',
+    studentProfile: reportProfile,
+    cpm: 120,
+    accuracy: 90,
+    durationSeconds: 40,
+    title: '처음 독후감',
+    rating: 4,
+    memorableQuote: '',
+    quoteReason: '',
+    content: '처음 내용',
+    personalTakeaway: '',
+    paragraphNotes: [],
+  });
+  if (firstReport.length !== 1 || firstReport[0].content !== '처음 내용') {
+    throw new Error('book report was not saved');
+  }
+  const updatedReport = await saveReport(login.account.id, {
+    id: 'report-second',
+    createdAt: Date.now() + 1,
+    excerptId: 'work-1',
+    bookTitle: '책',
+    author: '작가',
+    excerptTitle: '작품',
+    studentProfile: reportProfile,
+    cpm: 210,
+    accuracy: 95,
+    durationSeconds: 30,
+    title: '갱신 독후감',
+    rating: 5,
+    memorableQuote: '',
+    quoteReason: '',
+    content: '갱신된 내용',
+    personalTakeaway: '',
+    paragraphNotes: [],
+  });
+  if (updatedReport.length !== 1) {
+    throw new Error(`one book should keep a single report: ${updatedReport.length}`);
+  }
+  if (updatedReport[0].id !== firstReport[0].id) {
+    throw new Error('existing report id should be reused');
+  }
+  if (
+    updatedReport[0].content !== '갱신된 내용' ||
+    updatedReport[0].cpm !== 210 ||
+    updatedReport[0].title !== '갱신 독후감'
+  ) {
+    throw new Error('existing report was not updated');
+  }
+  const listedReports = await listReports(login.account.id);
+  if (listedReports.length !== 1) {
+    throw new Error('listReports should return one report per book');
+  }
 
   const adminWrong = await loginAdmin(DEFAULT_ADMIN_USERNAME, 'wrong');
   if (adminWrong.success) throw new Error('wrong admin password should fail');

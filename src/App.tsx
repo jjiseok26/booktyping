@@ -65,6 +65,19 @@ export default function App() {
     window.addEventListener('hashchange', applyHash);
     return () => window.removeEventListener('hashchange', applyHash);
   }, []);
+
+  useEffect(() => {
+    const block = (event: Event) => event.preventDefault();
+    const events: Array<keyof DocumentEventMap> = ['copy', 'cut', 'paste', 'drop', 'dragstart', 'contextmenu'];
+    for (const name of events) {
+      document.addEventListener(name, block);
+    }
+    return () => {
+      for (const name of events) {
+        document.removeEventListener(name, block);
+      }
+    };
+  }, []);
   const [selectedBook, setSelectedBook] = useState<BookExcerpt>(PUBLIC_DOMAIN_BOOKS[0]);
   const [history, setHistory] = useState<TypingSessionResult[]>([]);
   const [settings, setSettings] = useState<TypingSettings>(getStoredSettings());
@@ -192,8 +205,10 @@ export default function App() {
     resultToReport?: TypingSessionResult
   ) => {
     const targetBook = bookToReport || (initialReport ? PUBLIC_DOMAIN_BOOKS.find(b => b.id === initialReport.excerptId) || selectedBook : selectedBook);
+    const excerptId = initialReport?.excerptId || targetBook?.id || resultToReport?.excerptId;
+    const existing = initialReport || (excerptId ? reports.find((item) => item.excerptId === excerptId) : undefined);
     const canWrite =
-      Boolean(initialReport) ||
+      Boolean(existing) ||
       Boolean(resultToReport) ||
       (targetBook ? isWorkCompleted(history, targetBook.id) : false);
     if (!canWrite) {
@@ -202,7 +217,7 @@ export default function App() {
       return;
     }
     setReportModalData({
-      initialReport,
+      initialReport: existing,
       book: targetBook,
       typingResult: resultToReport,
     });
@@ -212,13 +227,10 @@ export default function App() {
   const handleSaveReportSuccess = (savedReport: BookReport) => {
     if (currentAccount) {
       setReports((prev) => {
-        const idx = prev.findIndex((item) => item.id === savedReport.id);
-        if (idx >= 0) {
-          const next = [...prev];
-          next[idx] = savedReport;
-          return next;
-        }
-        return [savedReport, ...prev];
+        const without = prev.filter(
+          (item) => item.id !== savedReport.id && item.excerptId !== savedReport.excerptId
+        );
+        return [savedReport, ...without];
       });
       return;
     }
@@ -259,7 +271,7 @@ export default function App() {
   return (
     <div className={`min-h-screen flex flex-col bg-[#fbfaf8] text-stone-900 font-sans-kr selection:bg-amber-100 selection:text-amber-950 ${currentView === 'admin' ? '' : 'md:pl-56'}`}>
       {currentView === 'admin' ? (
-        <div className="fixed inset-0 z-[60]">
+        <div className="fixed inset-0 z-[60] overflow-y-auto overflow-x-hidden">
         <AdminView
           loginMode={staffLoginMode}
           onBrowseStudentView={(staff) => {
@@ -394,9 +406,14 @@ export default function App() {
             onClearHistory={handleClearHistory}
             onDeleteRecord={handleDeleteRecord}
             onStartTyping={() => setCurrentView('typing')}
+            reports={reports}
             onWriteReport={(record) => {
               const matchedBook = PUBLIC_DOMAIN_BOOKS.find((b) => b.id === record.excerptId);
-              handleOpenReportModal(undefined, matchedBook, record);
+              handleOpenReportModal(
+                reports.find((item) => item.excerptId === record.excerptId),
+                matchedBook,
+                record
+              );
             }}
           />
         )}

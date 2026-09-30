@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS book_reports (
 );
 
 CREATE INDEX IF NOT EXISTS idx_reports_student ON book_reports (student_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_reports_student_excerpt ON book_reports (student_id, excerpt_id);
 
 CREATE TABLE IF NOT EXISTS teachers (
   id TEXT PRIMARY KEY,

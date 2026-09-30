@@ -665,6 +665,11 @@ export const TypingArea: React.FC<TypingAreaProps> = ({
             value={userInput}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
+            onCopy={(event) => event.preventDefault()}
+            onCut={(event) => event.preventDefault()}
+            onPaste={(event) => event.preventDefault()}
+            onDrop={(event) => event.preventDefault()}
+            autoComplete="off"
             placeholder="위 문장을 보며 천천히 따라 타이핑해 보세요..."
             autoFocus
             className={`w-full py-4 px-5 bg-white/90 rounded-2xl border-2 transition-all shadow-inner focus:outline-none ${

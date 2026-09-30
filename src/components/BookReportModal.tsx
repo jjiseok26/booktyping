@@ -99,9 +99,9 @@ export const BookReportModal: React.FC<BookReportModalProps> = ({
   const currentAuthor = initialReport?.author || book?.author || '작가';
   const currentExcerptTitle = initialReport?.excerptTitle || book?.title || '';
   const currentExcerptId = initialReport?.excerptId || book?.id || 'book-custom';
-  const currentCpm = initialReport?.cpm || typingResult?.cpm || 320;
-  const currentAccuracy = initialReport?.accuracy || typingResult?.accuracy || 98;
-  const currentDuration = initialReport?.durationSeconds || typingResult?.durationSeconds || 120;
+  const currentCpm = typingResult?.cpm ?? initialReport?.cpm ?? 320;
+  const currentAccuracy = typingResult?.accuracy ?? initialReport?.accuracy ?? 98;
+  const currentDuration = typingResult?.durationSeconds ?? initialReport?.durationSeconds ?? 120;
 
   const currentReportObject: BookReport = {
     id: initialReport?.id || 'report-' + Date.now(),

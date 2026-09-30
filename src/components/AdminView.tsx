@@ -1410,7 +1410,7 @@ function StaffShell({
   children: React.ReactNode;
 }) {
   return (
-    <div className={`min-h-screen ${dark ? 'bg-stone-950 text-stone-100' : 'bg-[#fbfaf8] text-stone-900'}`}>
+    <div className={`min-h-full ${dark ? 'bg-stone-950 text-stone-100' : 'bg-[#fbfaf8] text-stone-900'}`}>
       {bar ? (
         <header className="fixed top-0 left-0 right-0 z-[60] h-16 bg-stone-900 text-stone-100 border-b border-stone-800">
           <div className="h-full md:pl-56 px-4 sm:px-6 flex items-center justify-end gap-2">{bar}</div>
@@ -1450,7 +1450,7 @@ function StaffShell({
           </div>
         </nav>
       </aside>
-      <div className={`${bar ? 'pt-16' : ''} md:pl-56`}>
+      <div className={`${bar ? 'pt-16' : ''} md:pl-56 min-h-full`}>
         {children}
         <p className={`text-center text-xs py-6 ${dark ? 'text-stone-500' : 'text-stone-400'}`}>© jiseok</p>
       </div>
