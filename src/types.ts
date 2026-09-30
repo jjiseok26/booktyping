@@ -12,6 +12,7 @@ export interface StudentAccount {
   name: string;        // 성명 (로그인 암호 역할)
   createdAt: number;
   lastLoginAt: number;
+  approved?: boolean;
 }
 
 export interface StudentProfile {

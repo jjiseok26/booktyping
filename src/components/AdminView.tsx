@@ -16,6 +16,8 @@ import {
   BookOpen,
   Eye,
   Printer,
+  Download,
+  Search,
 } from 'lucide-react';
 import { BookReport, StudentAccount, TypingSessionResult } from '../types';
 import {
@@ -34,12 +36,15 @@ import {
   apiAdminSessions,
   apiAdminStudents,
   apiAdminTeachers,
+  apiAdminApproveStudent,
   apiAdminUpdateStudent,
   apiAdminUpdateTeacher,
   apiListSchools,
   apiTeacherLogin,
   apiTeacherRegister,
   apiListSchoolWorks,
+  apiListAllSchoolWorks,
+  apiDownloadSchoolWork,
   apiCreateSchoolWork,
   apiUpdateSchoolWork,
   apiDeleteSchoolWork,
@@ -55,7 +60,7 @@ import { BookReportPrintSheet } from './BookReportPrintSheet';
 type AdminTab = 'overview' | 'students' | 'sessions' | 'reports' | 'teachers' | 'works';
 type StaffRole = 'admin' | 'teacher' | 'school_admin';
 type LoginMode = 'admin' | 'teacher';
-type AdminStudent = StudentAccount & { sessionCount: number; reportCount: number; totalChars: number };
+type AdminStudent = StudentAccount & { sessionCount: number; reportCount: number; totalChars: number; approved?: boolean };
 type TeacherRow = {
   id: string;
   schoolName: string;
@@ -159,6 +164,12 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
   const [reports, setReports] = useState<BookReport[]>([]);
   const [viewingReport, setViewingReport] = useState<BookReport | null>(null);
   const [teachers, setTeachers] = useState<TeacherRow[]>([]);
+  const [teacherLookupSchool, setTeacherLookupSchool] = useState('');
+  const [teacherLookupUsername, setTeacherLookupUsername] = useState('');
+  const [teacherLookupGrade, setTeacherLookupGrade] = useState('');
+  const [teacherLookupClassNum, setTeacherLookupClassNum] = useState('');
+  const [teacherSearched, setTeacherSearched] = useState(false);
+  const [lookingUpTeachers, setLookingUpTeachers] = useState(false);
   const [schoolWorks, setSchoolWorks] = useState<SchoolWorkSummary[]>([]);
   const [workTitle, setWorkTitle] = useState('');
   const [workAuthor, setWorkAuthor] = useState('');
@@ -199,6 +210,12 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
   const canManageTeachers = staffRole === 'admin' || staffRole === 'school_admin';
   const canManageWorks = staffRole === 'teacher' || staffRole === 'school_admin';
   const canEditStudents = staffRole === 'admin' || staffRole === 'school_admin';
+  const canApproveStudents = staffRole === 'admin' || staffRole === 'school_admin' || staffRole === 'teacher';
+  const hasTeacherLookup =
+    Boolean(teacherLookupSchool.trim()) ||
+    Boolean(teacherLookupUsername.trim()) ||
+    Boolean(parseFilterNum(teacherLookupGrade)) ||
+    Boolean(parseFilterNum(teacherLookupClassNum));
   const consoleTitle =
     staffRole === 'admin' ? '관리자 콘솔' : staffRole === 'school_admin' ? '학교 최고관리자 콘솔' : '담임교사 콘솔';
 
@@ -215,20 +232,47 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
     setSessions(nextSessions);
     setReports(nextReports);
     setSchools(nextSchools);
-    if (role === 'admin' || role === 'school_admin') {
-      setTeachers(await apiAdminTeachers());
-    } else {
+    setTeachers([]);
+    setTeacherSearched(false);
+  };
+
+  const searchTeachers = async () => {
+    if (!hasTeacherLookup) {
       setTeachers([]);
+      setTeacherSearched(true);
+      return;
+    }
+    setLookingUpTeachers(true);
+    try {
+      setTeachers(
+        await apiAdminTeachers({
+          schoolName: isAdmin ? expandSchoolName(teacherLookupSchool) : '',
+          username: teacherLookupUsername.trim(),
+          grade: teacherLookupGrade.trim(),
+          classNum: teacherLookupClassNum.trim(),
+        })
+      );
+      setTeacherSearched(true);
+    } catch {
+      setTeachers([]);
+      setTeacherSearched(true);
+    } finally {
+      setLookingUpTeachers(false);
     }
   };
 
   useEffect(() => {
     if (!adminName || !staffSchool || !canManageWorks) {
-      setSchoolWorks([]);
+      if (!isAdmin) setSchoolWorks([]);
       return;
     }
     void apiListSchoolWorks(staffSchool).then(setSchoolWorks).catch(() => setSchoolWorks([]));
-  }, [adminName, staffSchool, canManageWorks]);
+  }, [adminName, staffSchool, canManageWorks, isAdmin]);
+
+  useEffect(() => {
+    if (!adminName || !isAdmin || tab !== 'works') return;
+    void apiListAllSchoolWorks().then(setSchoolWorks).catch(() => setSchoolWorks([]));
+  }, [adminName, isAdmin, tab]);
 
   useEffect(() => {
     if (!getAdminToken()) {
@@ -345,7 +389,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
     setSavingTeacher(true);
     setEditTeacherMessage(null);
     try {
-      const next = await apiAdminUpdateTeacher(editingTeacher.id, {
+      await apiAdminUpdateTeacher(editingTeacher.id, {
         schoolName: expandSchoolName(editTeacherSchool) || staffSchool,
         username: editTeacherUsername.trim(),
         password: editTeacherPassword || undefined,
@@ -353,7 +397,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
         classNum: Number(editTeacherClassNum),
         schoolAdmin: isAdmin ? editTeacherSchoolAdmin : undefined,
       });
-      setTeachers(next);
+      await searchTeachers();
       setEditingTeacher(null);
     } catch (err) {
       setEditTeacherMessage(err instanceof Error ? err.message : '교사 정보를 수정하지 못했습니다.');
@@ -406,10 +450,10 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
         return;
       }
       const result = await apiAdminCreateTeachers(drafts);
-      if (result.teachers) setTeachers(result.teachers);
       const failed = result.failed?.length ? `\n${result.failed.join('\n')}` : '';
       setTeacherMessage(`${result.message || '교사 계정을 등록했습니다.'}${failed}`);
       setSchools(await apiListSchools());
+      if (teacherSearched) await searchTeachers();
     } catch (err) {
       setTeacherMessage(err instanceof Error ? err.message : '엑셀 파일을 읽지 못했습니다.');
     } finally {
@@ -423,6 +467,21 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
     const link = document.createElement('a');
     link.href = url;
     link.download = '담임교사_등록양식.csv';
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadSchoolWorkFile = async (id: string) => {
+    const data = await apiDownloadSchoolWork(id);
+    if (!data.text) {
+      window.alert('작품 본문을 내려받지 못했습니다.');
+      return;
+    }
+    const blob = new Blob([data.text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = data.filename || '학교작품.txt';
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -740,7 +799,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
               ['students', '학생', Users],
               ['sessions', '필사 기록', Keyboard],
               ['reports', '독후감', FileText],
-              ...(canManageWorks ? ([['works', '학교 작품', BookOpen]] as const) : []),
+              ...(isAdmin || canManageWorks ? ([['works', isAdmin ? '학교 작품 내려받기' : '학교 작품', BookOpen]] as const) : []),
               ...(canManageTeachers ? ([['teachers', '담임교사', UserPlus]] as const) : []),
             ] as const
           ).map(([id, label, Icon]) => (
@@ -853,16 +912,32 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
         {tab === 'students' && (
           <AdminTable
             empty={hasRosterFilter ? '조건에 맞는 학생이 없습니다. 학년·반·번호를 확인해 주세요.' : '등록된 학생이 없습니다.'}
-            headers={['학교', '학급', '이름', '필사', '독후감', '글자 수', '']}
+            headers={['학교', '학급', '이름', '상태', '필사', '독후감', '글자 수', '']}
             rows={filteredStudents.map((student) => [
               student.schoolName,
               `${student.grade}학년 ${student.classNum}반 ${student.studentNum}번`,
               student.name,
+              student.approved === false ? '승인 대기' : '승인됨',
               String(student.sessionCount),
               String(student.reportCount),
               String(student.totalChars),
-              canEditStudents ? (
-                <span key={student.id} className="flex items-center justify-end gap-2">
+              <span key={student.id} className="flex items-center justify-end gap-2">
+                  {canApproveStudents &&
+                  student.approved === false &&
+                  (staffRole !== 'teacher' ||
+                    ((!staffGrade || student.grade === staffGrade) && (!staffClassNum || student.classNum === staffClassNum))) ? (
+                    <button
+                      className="text-emerald-600 hover:text-emerald-700"
+                      title="가입 승인"
+                      onClick={() => {
+                        void apiAdminApproveStudent(student.id).then(setStudents);
+                      }}
+                    >
+                      <Check className="w-4 h-4" />
+                    </button>
+                  ) : null}
+                  {canEditStudents ? (
+                    <>
                   <button
                     className="text-stone-500 hover:text-amber-700"
                     onClick={() => openStudentEditor(student)}
@@ -881,10 +956,9 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
-                </span>
-              ) : (
-                ''
-              ),
+                    </>
+                  ) : null}
+                </span>,
             ])}
           />
         )}
@@ -994,6 +1068,31 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
               </span>,
             ])}
           />
+        )}
+        {tab === 'works' && isAdmin && (
+          <section className="bg-white border border-stone-200 rounded-2xl divide-y">
+            <p className="p-4 text-sm text-stone-600">학교에서 선생님이 올린 작품을 텍스트 파일로 내려받을 수 있습니다.</p>
+            {schoolWorks.length === 0 ? (
+              <p className="p-4 text-sm text-stone-500">등록된 학교 작품이 없습니다.</p>
+            ) : (
+              schoolWorks.map((work) => (
+                <div key={work.id} className="p-4 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="font-semibold text-sm">{work.title}</p>
+                    <p className="text-xs text-stone-500">{work.schoolName} · {work.author} · {work.teacherUsername}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void downloadSchoolWorkFile(work.id)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-700 hover:bg-sky-600 text-white text-xs font-semibold"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    텍스트 저장
+                  </button>
+                </div>
+              ))
+            )}
+          </section>
         )}
         {tab === 'works' && canManageWorks && (
           <section className="space-y-4">
@@ -1108,6 +1207,66 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
               className="bg-white border border-stone-200 rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 items-end"
               onSubmit={(e) => {
                 e.preventDefault();
+                void searchTeachers();
+              }}
+            >
+              {isAdmin ? (
+                <label className="text-xs text-stone-500 lg:col-span-2">
+                  학교명
+                  <SchoolNameField
+                    value={teacherLookupSchool}
+                    onChange={setTeacherLookupSchool}
+                    schools={schools}
+                    variant="light"
+                    placeholder="예: 금구중"
+                    inputClassName="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm bg-white"
+                  />
+                </label>
+              ) : (
+                <p className="text-xs text-stone-500 lg:col-span-2">{staffSchool}</p>
+              )}
+              <label className="text-xs text-stone-500">
+                아이디
+                <input
+                  value={teacherLookupUsername}
+                  onChange={(e) => setTeacherLookupUsername(e.target.value)}
+                  placeholder="아이디"
+                  className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm bg-white"
+                />
+              </label>
+              <label className="text-xs text-stone-500">
+                학년
+                <input
+                  value={teacherLookupGrade}
+                  onChange={(e) => setTeacherLookupGrade(e.target.value.replace(/[^\d]/g, ''))}
+                  placeholder="예: 2"
+                  inputMode="numeric"
+                  className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm bg-white"
+                />
+              </label>
+              <label className="text-xs text-stone-500">
+                반
+                <input
+                  value={teacherLookupClassNum}
+                  onChange={(e) => setTeacherLookupClassNum(e.target.value.replace(/[^\d]/g, ''))}
+                  placeholder="예: 3"
+                  inputMode="numeric"
+                  className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm bg-white"
+                />
+              </label>
+              <button
+                type="submit"
+                disabled={!hasTeacherLookup || lookingUpTeachers}
+                className="px-3 py-2 rounded-lg bg-sky-700 text-white text-sm font-semibold disabled:opacity-40 inline-flex items-center justify-center gap-1.5"
+              >
+                <Search className="w-4 h-4" />
+                {lookingUpTeachers ? '조회 중...' : '조회'}
+              </button>
+            </form>
+            <form
+              className="bg-white border border-stone-200 rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 items-end"
+              onSubmit={(e) => {
+                e.preventDefault();
                 setTeacherMessage(null);
                 void apiAdminCreateTeacher({
                   schoolName: isAdmin ? expandSchoolName(teacherSchool) : staffSchool,
@@ -1119,7 +1278,6 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
                 })
                   .then(async (result) => {
                     setTeacherMessage(result.message || '교사 계정을 만들었습니다.');
-                    if (result.teachers) setTeachers(result.teachers);
                     if (result.success) {
                       setTeacherSchool('');
                       setTeacherUsername('');
@@ -1128,6 +1286,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
                       setTeacherClassNum('1');
                       setTeacherIsSchoolAdmin(false);
                       setSchools(await apiListSchools());
+                      if (teacherSearched) await searchTeachers();
                     }
                   })
                   .catch((err) => {
@@ -1242,7 +1401,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
             )}
 
             <AdminTable
-              empty="등록된 담임교사가 없습니다."
+              empty={teacherSearched ? '조건에 맞는 담임교사가 없습니다.' : '학교명·아이디·학년·반 중 하나 이상을 넣고 조회하세요.'}
               headers={['학교', '아이디', '역할', '학급', '상태', '최근 로그인', '']}
               rows={teachers.map((teacher) => [
                 teacher.schoolName,
@@ -1264,7 +1423,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
                       className="text-emerald-600 hover:text-emerald-700"
                       title="가입 승인"
                       onClick={() => {
-                        void apiAdminApproveTeacher(teacher.id).then(setTeachers);
+                        void apiAdminApproveTeacher(teacher.id).then(() => searchTeachers());
                       }}
                     >
                       <Check className="w-4 h-4" />
@@ -1275,7 +1434,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
                     className="text-rose-600 hover:text-rose-700"
                     onClick={() => {
                       if (!window.confirm(`${teacher.username} 계정을 삭제할까요?`)) return;
-                      void apiAdminDeleteTeacher(teacher.id).then(setTeachers);
+                      void apiAdminDeleteTeacher(teacher.id).then(() => searchTeachers());
                     }}
                   >
                     <Trash2 className="w-4 h-4" />

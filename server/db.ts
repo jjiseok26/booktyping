@@ -182,6 +182,7 @@ function mapStudent(row: SqlRow): StudentAccount {
     name: String(row.name),
     createdAt: Number(row.created_at),
     lastLoginAt: Number(row.last_login_at),
+    approved: Number(row.approved ?? 1) !== 0,
   };
 }
 
@@ -348,6 +349,7 @@ async function migrateExtraColumns(): Promise<void> {
     'ALTER TABLE teachers ADD COLUMN locked_until BIGINT NOT NULL DEFAULT 0',
     'ALTER TABLE typing_sessions ADD COLUMN repeat_count INTEGER NOT NULL DEFAULT 1',
     'ALTER TABLE typing_sessions ADD COLUMN score_weight REAL NOT NULL DEFAULT 1',
+    'ALTER TABLE students ADD COLUMN approved INTEGER NOT NULL DEFAULT 1',
   ];
   for (const sql of teacherAlters) {
     try {
@@ -522,8 +524,8 @@ export async function registerStudent(data: {
   const now = Date.now();
   try {
     await run(
-      `INSERT INTO students (id, school_year, school_name, grade, class_num, student_num, name, created_at, last_login_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO students (id, school_year, school_name, grade, class_num, student_num, name, created_at, last_login_at, approved)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
       [id, schoolYear, schoolName, grade, classNum, studentNum, name, now, now]
     );
   } catch (error) {
@@ -539,7 +541,7 @@ export async function registerStudent(data: {
   const account = await getStudentById(id);
   return {
     success: true,
-    message: `${name} 학생의 회원가입이 완료되었습니다! (성명이 로그인 암호입니다)`,
+    message: `${name} 학생의 회원가입 신청이 완료되었습니다. 담임선생님 또는 관리자 승인 후 로그인할 수 있습니다.`,
     account: account || undefined,
   };
 }
@@ -590,6 +592,12 @@ export async function loginStudent(data: {
       message: failLoginMessage(fail, '학생'),
     };
   }
+  if (matched.approved === false) {
+    return {
+      success: false,
+      message: '아직 가입이 승인되지 않았습니다. 담임선생님 또는 관리자 승인 후 로그인할 수 있습니다.',
+    };
+  }
 
   const now = Date.now();
   await run(
@@ -607,6 +615,17 @@ export async function loginStudent(data: {
 export async function getStudentById(id: string): Promise<StudentAccount | null> {
   const rows = await query('SELECT * FROM students WHERE id = ? LIMIT 1', [id]);
   return rows[0] ? mapStudent(rows[0]) : null;
+}
+
+export async function approveStudent(id: string): Promise<{ success: boolean; message: string; account?: StudentAccount }> {
+  const current = await getStudentById(id);
+  if (!current) return { success: false, message: '학생 계정을 찾을 수 없습니다.' };
+  await run('UPDATE students SET approved = 1 WHERE id = ?', [id]);
+  return {
+    success: true,
+    message: `${current.name} 학생의 가입을 승인했습니다.`,
+    account: { ...current, approved: true },
+  };
 }
 
 export async function saveSession(
@@ -1382,16 +1401,44 @@ function mapTeacher(row: SqlRow): TeacherAccount {
   };
 }
 
-export async function listTeachers(schoolName?: string): Promise<TeacherAccount[]> {
+export async function listTeachers(
+  schoolName?: string,
+  filters?: { schoolName?: string; username?: string; grade?: number; classNum?: number }
+): Promise<TeacherAccount[]> {
+  const schoolFilter = filters?.schoolName ? expandSchoolName(filters.schoolName) : '';
+  const username = String(filters?.username || '').trim();
+  const grade = Number(filters?.grade || 0);
+  const classNum = Number(filters?.classNum || 0);
+  if (!schoolFilter && !username && !(grade > 0) && !(classNum > 0)) return [];
+
+  const clauses: string[] = [];
+  const params: unknown[] = [];
   const scoped = schoolName ? expandSchoolName(schoolName) : '';
-  const rows = scoped
-    ? await query(
-        'SELECT * FROM teachers WHERE school_name = ? ORDER BY approved ASC, is_school_admin DESC, grade, class_num, username',
-        [scoped]
-      )
-    : await query(
-        'SELECT * FROM teachers ORDER BY approved ASC, school_name, is_school_admin DESC, grade, class_num, username'
-      );
+  if (scoped) {
+    clauses.push('school_name = ?');
+    params.push(scoped);
+  }
+  if (schoolFilter) {
+    clauses.push('school_name = ?');
+    params.push(schoolFilter);
+  }
+  if (username) {
+    clauses.push('username LIKE ?');
+    params.push(`%${username}%`);
+  }
+  if (grade > 0) {
+    clauses.push('grade = ?');
+    params.push(grade);
+  }
+  if (classNum > 0) {
+    clauses.push('class_num = ?');
+    params.push(classNum);
+  }
+  const rows = await query(
+    `SELECT * FROM teachers ${clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''}
+     ORDER BY approved ASC, school_name, is_school_admin DESC, grade, class_num, username`,
+    params
+  );
   return rows.map(mapTeacher);
 }
 
@@ -1461,7 +1508,7 @@ export async function listAllStudents(scope?: StaffScope | string): Promise<Admi
   const rows = await query(
     `SELECT
       s.id, s.school_year, s.school_name, s.grade, s.class_num, s.student_num, s.name,
-      s.created_at, s.last_login_at,
+      s.created_at, s.last_login_at, s.approved,
       COUNT(DISTINCT ts.id) AS session_count,
       COUNT(DISTINCT br.id) AS report_count,
       COALESCE(SUM(ts.total_chars), 0) AS total_chars
@@ -1469,8 +1516,8 @@ export async function listAllStudents(scope?: StaffScope | string): Promise<Admi
      LEFT JOIN typing_sessions ts ON ts.student_id = s.id
      LEFT JOIN book_reports br ON br.student_id = s.id
      ${filter.sql}
-     GROUP BY s.id, s.school_year, s.school_name, s.grade, s.class_num, s.student_num, s.name, s.created_at, s.last_login_at
-     ORDER BY s.school_name, s.grade, s.class_num, s.student_num`,
+     GROUP BY s.id, s.school_year, s.school_name, s.grade, s.class_num, s.student_num, s.name, s.created_at, s.last_login_at, s.approved
+     ORDER BY s.approved ASC, s.school_name, s.grade, s.class_num, s.student_num`,
     filter.params
   );
   return rows.map((row) => ({
@@ -1525,9 +1572,9 @@ export async function updateStudentAccount(
 
   try {
     await run(
-      `INSERT INTO students (id, school_year, school_name, grade, class_num, student_num, name, created_at, last_login_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [nextId, schoolYear, schoolName, grade, classNum, studentNum, name, current.createdAt, now]
+      `INSERT INTO students (id, school_year, school_name, grade, class_num, student_num, name, created_at, last_login_at, approved)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [nextId, schoolYear, schoolName, grade, classNum, studentNum, name, current.createdAt, now, current.approved === false ? 0 : 1]
     );
   } catch (error) {
     if (isUniqueViolation(error)) {
@@ -1693,6 +1740,36 @@ function mapSchoolWorkSummary(row: SqlRow): SchoolWorkSummary {
     title: String(row.title),
     author: String(row.author || ''),
     createdAt: Number(row.created_at),
+  };
+}
+
+export async function listAllSchoolWorks(): Promise<SchoolWorkSummary[]> {
+  const rows = await query(
+    'SELECT id, school_name, teacher_username, title, author, created_at FROM school_works ORDER BY school_name, created_at DESC'
+  );
+  return rows.map(mapSchoolWorkSummary);
+}
+
+export async function downloadSchoolWorkText(
+  id: string
+): Promise<{ success: boolean; message: string; filename?: string; text?: string }> {
+  const rows = await query('SELECT * FROM school_works WHERE id = ? LIMIT 1', [id]);
+  if (!rows[0]) return { success: false, message: '작품을 찾을 수 없습니다.' };
+  let sentences: string[] = [];
+  try {
+    const parsed = JSON.parse(String(rows[0].sentences || '[]'));
+    sentences = Array.isArray(parsed) ? parsed.map((item) => String(item)) : [];
+  } catch {
+    sentences = [];
+  }
+  if (!sentences.length) return { success: false, message: '작품 본문이 없습니다.' };
+  const title = String(rows[0].title || '학교작품').replace(/[\\/:*?"<>|]/g, '_');
+  const school = String(rows[0].school_name || '').replace(/[\\/:*?"<>|]/g, '_');
+  return {
+    success: true,
+    message: '내려받을 글을 준비했습니다.',
+    filename: `${school ? `${school}_` : ''}${title}.txt`,
+    text: sentences.join('\n'),
   };
 }
 

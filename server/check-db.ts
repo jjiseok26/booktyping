@@ -7,6 +7,7 @@ import {
   listSessions,
   loginStudent,
   registerStudent,
+  approveStudent,
   resetSchemaCache,
   saveSession,
   saveReport,
@@ -31,6 +32,8 @@ import {
   getStudentById,
   createSchoolWork,
   unlockSchoolWork,
+  listTeachers,
+  downloadSchoolWorkText,
 } from './db';
 import { rowsToTeachers } from '../src/utils/teacherWorkbook';
 import { readStaffToken, readStudentToken, signStudentToken } from './adminAuth.js';
@@ -72,6 +75,20 @@ async function main() {
     name: '김지민',
   });
   if (!created.success || !created.account) throw new Error(created.message);
+  if (created.account.approved !== false) throw new Error('new student should wait for approval');
+
+  const pendingStudentLogin = await loginStudent({
+    schoolYear: '2026학년도',
+    schoolName: '가온중학교',
+    grade: 2,
+    classNum: 3,
+    studentNum: 15,
+    name: '김지민',
+  });
+  if (pendingStudentLogin.success) throw new Error('unapproved student should not login');
+
+  const approvedStudent = await approveStudent(created.account.id);
+  if (!approvedStudent.success) throw new Error(approvedStudent.message);
 
   const duplicate = await registerStudent({
     schoolYear: '2026학년도',
@@ -309,6 +326,8 @@ async function main() {
   if (!expanded.success || expanded.account?.schoolName !== '금구중학교') {
     throw new Error(`school short name was not expanded: ${expanded.account?.schoolName || expanded.message}`);
   }
+  const approvedExpanded = await approveStudent(expanded.account?.id || '');
+  if (!approvedExpanded.success) throw new Error(approvedExpanded.message);
   const expandedLogin = await loginStudent({
     schoolYear: '2026학년도',
     schoolName: '금구중',
@@ -515,6 +534,8 @@ async function main() {
     name: '잠금학생',
   });
   if (!lockStudent.success || !lockStudent.account) throw new Error(lockStudent.message);
+  const approvedLock = await approveStudent(lockStudent.account.id);
+  if (!approvedLock.success) throw new Error(approvedLock.message);
   for (let attempt = 1; attempt <= 5; attempt += 1) {
     const fail = await loginStudent({
       schoolYear: '2026학년도',
@@ -598,6 +619,12 @@ async function main() {
   if (wrongUnlock.success) throw new Error('wrong work password should fail');
   const opened = await unlockSchoolWork(uploaded.works[0].id, 'open-sesame');
   if (!opened.success || opened.book?.sentences.length !== 2) throw new Error('school work did not unlock');
+  const downloaded = await downloadSchoolWorkText(uploaded.works[0].id);
+  if (!downloaded.success || downloaded.text !== '첫 문장입니다.\n두 번째 문장입니다.') {
+    throw new Error(downloaded.message || 'school work download failed');
+  }
+  const noTeacherDump = await listTeachers();
+  if (noTeacherDump.length !== 0) throw new Error('teacher list should stay empty until search filters are set');
 
   resetSchemaCache();
   try {

@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS students (
   failed_logins INTEGER NOT NULL DEFAULT 0,
   lock_level INTEGER NOT NULL DEFAULT 0,
   locked_until BIGINT NOT NULL DEFAULT 0,
+  approved INTEGER NOT NULL DEFAULT 0,
   UNIQUE (school_year, school_name, grade, class_num, student_num)
 );
 

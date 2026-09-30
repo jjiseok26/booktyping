@@ -32,7 +32,10 @@ import {
   clearTypingProgress,
   updateStudentAccount,
   updateTeacher,
+  approveStudent,
   listSchoolWorks,
+  listAllSchoolWorks,
+  downloadSchoolWorkText,
   createSchoolWork,
   updateSchoolWork,
   deleteSchoolWork,
@@ -227,8 +230,8 @@ function requireStudent(req: express.Request, res: express.Response, studentId: 
   return true;
 }
 
-function withStudentToken<T extends { success?: boolean; account?: { id: string } }>(result: T) {
-  if (!result.success || !result.account) return result;
+function withStudentToken<T extends { success?: boolean; account?: { id: string; approved?: boolean } }>(result: T) {
+  if (!result.success || !result.account || result.account.approved === false) return result;
   return { ...result, token: signStudentToken(result.account.id) };
 }
 
@@ -576,8 +579,39 @@ app.delete(
 app.patch(
   '/api/admin/students/:id',
   asyncRoute(async (req, res) => {
-    const staff = await requireStudentEditor(req, res);
+    const staff = await requireStaff(req, res);
     if (!staff) return;
+    const student = await getStudentById(req.params.id);
+    if (!student) {
+      res.status(404).json({ success: false, message: '학생 계정을 찾을 수 없습니다.' });
+      return;
+    }
+    if (!studentInStaffScope(student, staff)) {
+      res.status(403).json({ success: false, message: '해당 학생을 처리할 권한이 없습니다.' });
+      return;
+    }
+    if (req.body?.approved === true || req.body?.approved === 1) {
+      if (staff.role === 'teacher') {
+        if (staff.grade && student.grade !== staff.grade) {
+          res.status(403).json({ success: false, message: '담당 학년 학생만 승인할 수 있습니다.' });
+          return;
+        }
+        if (staff.classNum && student.classNum !== staff.classNum) {
+          res.status(403).json({ success: false, message: '담당 반 학생만 승인할 수 있습니다.' });
+          return;
+        }
+      }
+      const result = await approveStudent(req.params.id);
+      res.status(result.success ? 200 : 400).json({
+        ...result,
+        students: result.success ? await listAllStudents(staffScope(staff)) : undefined,
+      });
+      return;
+    }
+    if (staff.role !== 'admin' && staff.role !== 'school_admin') {
+      res.status(403).json({ success: false, message: '학교 최고관리자만 학생 정보를 수정할 수 있습니다.' });
+      return;
+    }
     const result = await updateStudentAccount(
       req.params.id,
       {
@@ -677,7 +711,15 @@ app.get(
   asyncRoute(async (req, res) => {
     const staff = await requireTeacherManager(req, res);
     if (!staff) return;
-    res.json({ success: true, teachers: await listTeachers(teacherListScope(staff)) });
+    res.json({
+      success: true,
+      teachers: await listTeachers(teacherListScope(staff), {
+        schoolName: String(req.query.schoolName || ''),
+        username: String(req.query.username || ''),
+        grade: Number(req.query.grade || 0),
+        classNum: Number(req.query.classNum || 0),
+      }),
+    });
   })
 );
 
@@ -767,6 +809,20 @@ app.delete(
 app.get(
   '/api/school-works',
   asyncRoute(async (req, res) => {
+    const downloadId = String(req.query.download || '');
+    if (downloadId) {
+      const staff = await requireAdminOnly(req, res);
+      if (!staff) return;
+      const result = await downloadSchoolWorkText(downloadId);
+      res.status(result.success ? 200 : 400).json(result);
+      return;
+    }
+    if (String(req.query.all || '') === '1') {
+      const staff = await requireAdminOnly(req, res);
+      if (!staff) return;
+      res.json({ success: true, works: await listAllSchoolWorks() });
+      return;
+    }
     res.json({ success: true, works: await listSchoolWorks(String(req.query.schoolName || '')) });
   })
 );

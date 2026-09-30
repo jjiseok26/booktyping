@@ -349,7 +349,18 @@ export async function apiAdminDeleteReport(id: string, studentId: string) {
   return data.reports || [];
 }
 
-export async function apiAdminTeachers() {
+export async function apiAdminTeachers(filters?: {
+  schoolName?: string;
+  username?: string;
+  grade?: string;
+  classNum?: string;
+}) {
+  const params = new URLSearchParams();
+  if (filters?.schoolName) params.set('schoolName', filters.schoolName);
+  if (filters?.username) params.set('username', filters.username);
+  if (filters?.grade) params.set('grade', filters.grade);
+  if (filters?.classNum) params.set('classNum', filters.classNum);
+  const query = params.toString();
   const data = await adminRequest<{
     teachers: Array<{
       id: string;
@@ -362,7 +373,7 @@ export async function apiAdminTeachers() {
       createdAt: number;
       lastLoginAt: number;
     }>;
-  }>('/api/admin-teachers');
+  }>(`/api/admin-teachers${query ? `?${query}` : ''}`);
   return data.teachers || [];
 }
 
@@ -431,6 +442,7 @@ export async function apiAdminUpdateStudent(
     classNum?: number;
     studentNum?: number;
     name?: string;
+    approved?: boolean;
   }
 ) {
   const data = await adminRequest<{
@@ -440,6 +452,10 @@ export async function apiAdminUpdateStudent(
     body: JSON.stringify(payload),
   });
   return data.students || [];
+}
+
+export async function apiAdminApproveStudent(id: string) {
+  return apiAdminUpdateStudent(id, { approved: true });
 }
 
 export async function apiAdminUpdateTeacher(
@@ -508,6 +524,17 @@ export async function apiListSchoolWorks(schoolName: string): Promise<SchoolWork
     `/api/school-works?schoolName=${encodeURIComponent(schoolName)}`
   );
   return data.works || [];
+}
+
+export async function apiListAllSchoolWorks(): Promise<SchoolWorkSummary[]> {
+  const data = await adminRequest<{ works?: SchoolWorkSummary[] }>('/api/school-works?all=1');
+  return data.works || [];
+}
+
+export async function apiDownloadSchoolWork(id: string): Promise<{ filename?: string; text?: string }> {
+  return adminRequest<{ filename?: string; text?: string }>(
+    `/api/school-works?download=${encodeURIComponent(id)}`
+  );
 }
 
 export async function apiUnlockSchoolWork(id: string, password: string) {

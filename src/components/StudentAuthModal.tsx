@@ -130,12 +130,7 @@ export const StudentAuthModal: React.FC<StudentAuthModalProps> = ({
     }
 
     setSuccessMessage(res.message);
-    if (res.account) {
-      setTimeout(() => {
-        onLoginSuccess(res.account!);
-        onClose();
-      }, 500);
-    }
+    setActiveTab('login');
   };
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
@@ -288,7 +283,7 @@ export const StudentAuthModal: React.FC<StudentAuthModalProps> = ({
         <div className="mt-3.5 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-200/90 text-[11px] flex items-center gap-2">
           <Info className="w-4 h-4 text-amber-400 shrink-0" />
           <span>
-            {activeTab === 'register' && '비밀번호를 따로 설정할 필요 없이 학생 본인의 성명(이름)이 암호 역할을 합니다.'}
+            {activeTab === 'register' && '성명이 암호입니다. 가입 신청 후 담임선생님 또는 관리자가 승인해야 로그인할 수 있습니다.'}
             {activeTab === 'login' && '학교/학년/반/번호와 가입 시 등록했던 본인 성명(암호)을 입력해주세요.'}
           </span>
         </div>
@@ -451,7 +446,7 @@ export const StudentAuthModal: React.FC<StudentAuthModalProps> = ({
                 ) : (
                   <>
                     <UserPlus className="w-4 h-4" />
-                    <span>회원가입 완료 및 바로 로그인</span>
+                    <span>회원가입 신청 (승인 후 로그인)</span>
                   </>
                 )}
               </button>
