@@ -405,13 +405,13 @@ export const Header: React.FC<HeaderProps> = ({
                 <div className="flex items-start gap-2">
                   <span className="text-amber-400 font-bold">•</span>
                   <span>
-                    <strong>윤동주, 김유정, 이효석, 이상, 한용운, 현진건:</strong> 저작자 사후 70년 이상 경과하여 자유로운 이용이 보장된 한국 근현대 고전 문학.
+                    <strong>윤동주, 김유정, 이효석, 김영랑, 한용운, 현진건:</strong> 저작자 사후 70년 이상 경과하여 자유로운 이용이 보장된 한국 근현대 고전 문학.
                   </span>
                 </div>
                 <div className="flex items-start gap-2">
                   <span className="text-amber-400 font-bold">•</span>
                   <span>
-                    <strong>생텍쥐페리, 프란츠 카프카:</strong> 원작 저작권 만료 및 만료 번역본 기반 문학 발췌.
+                    <strong>생텍쥐페리, 안데르센, 마크 트웨인:</strong> 원작 저작권 만료 및 만료 번역본 기반 문학 발췌.
                   </span>
                 </div>
                 <div className="flex items-start gap-2">

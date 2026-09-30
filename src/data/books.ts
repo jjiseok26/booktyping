@@ -1,6 +1,23 @@
 import { BookExcerpt } from '../types';
 import { ADDITIONAL_PUBLIC_DOMAIN_BOOKS } from './moreBooks';
 import { FULL_NOVEL_SENTENCES, PARAPHRASE_BOOK_IDS } from './fullNovels';
+import { MIDDLE_SCHOOL_EXTRA_BOOKS } from './middleSchoolBooks';
+
+/** 중학생 필사에 맞지 않거나(폭력·성인 주제·난해한 한문 고전) 저작권이 남은 작품 */
+const NOT_FOR_MIDDLE_SCHOOL = new Set([
+  'kim-dongin-gamja',
+  'lee-sang-nalgae',
+  'na-samryong',
+  'chae-taepyeong',
+  'tolstoy-anna',
+  'kafka-metamorphosis',
+  'bronte-eyre',
+  'hemingway-oldman',
+  'jung-mokmin',
+  'park-yeolha',
+  'park-hozil',
+  'grimm-red-hood',
+]);
 
 const BOOK_CATALOG: BookExcerpt[] = [
   // ==================== 한국 근대시 ====================
@@ -1014,10 +1031,12 @@ const BOOK_CATALOG: BookExcerpt[] = [
     ],
   },
   ...ADDITIONAL_PUBLIC_DOMAIN_BOOKS,
+  ...MIDDLE_SCHOOL_EXTRA_BOOKS,
 ];
 
 export const PUBLIC_DOMAIN_BOOKS: BookExcerpt[] = BOOK_CATALOG
   .filter((book) => !PARAPHRASE_BOOK_IDS.has(book.id))
+  .filter((book) => !NOT_FOR_MIDDLE_SCHOOL.has(book.id))
   .map((book) => {
     const sentences = FULL_NOVEL_SENTENCES[book.id];
     if (!sentences?.length) return book;
