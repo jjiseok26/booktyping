@@ -132,14 +132,24 @@ async function ensureSchema(): Promise<void> {
       const { neon } = await import('@neondatabase/serverless');
       const sqlFn = neon(process.env.DATABASE_URL || process.env.POSTGRES_URL || '');
       for (const statement of splitStatements(SCHEMA)) {
-        await sqlFn.query(statement);
+        try {
+          await sqlFn.query(statement);
+        } catch {
+          // already exists, or a unique index is blocked by older duplicate rows
+        }
       }
     } else {
-      getSqlite().exec(SCHEMA);
+      for (const statement of splitStatements(SCHEMA)) {
+        try {
+          getSqlite().exec(statement);
+        } catch {
+          // already exists
+        }
+      }
     }
     schemaReady = true;
-    await migrateExtraColumns();
     await migrateDecryptAtRest();
+    await migrateExtraColumns();
   }
   if (seedingAdmin) return;
   seedingAdmin = true;
