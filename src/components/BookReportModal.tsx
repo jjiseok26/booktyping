@@ -10,6 +10,7 @@ import { BookReportPrintSheet } from './BookReportPrintSheet';
 import { saveStoredBookReport, getCurrentStudentAccount } from '../utils/storage';
 import { apiSaveReport } from '../utils/dbClient';
 import { getParagraphNotes } from '../utils/paragraphNotes';
+import { getTypingSentences } from '../data/books';
 import {
   BookOpen,
   Printer,
@@ -103,9 +104,7 @@ export const BookReportModal: React.FC<BookReportModalProps> = ({
       setTitle(defaultTitle);
       setRating(5);
       // Pick first or prominent sentence if available
-      const availableSentences = (book.fullSentences && book.fullSentences.length > 0)
-        ? book.fullSentences
-        : book.sentences;
+      const availableSentences = getTypingSentences(book);
       const sampleQuote = availableSentences.length > 0 ? availableSentences[0] : '';
       setMemorableQuote(sampleQuote);
       setQuoteReason('');
@@ -373,9 +372,7 @@ export const BookReportModal: React.FC<BookReportModalProps> = ({
                 {/* Quick sentence selector chips */}
                 {book && (
                   (() => {
-                    const allCandidateSentences = (book.fullSentences && book.fullSentences.length > 0)
-                      ? book.fullSentences
-                      : book.sentences;
+                    const allCandidateSentences = getTypingSentences(book);
                     if (allCandidateSentences.length === 0) return null;
                     return (
                       <div className="flex flex-wrap gap-1.5 mb-2 max-h-28 overflow-y-auto p-2 bg-stone-900/60 rounded-xl border border-stone-800">

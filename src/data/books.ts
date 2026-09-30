@@ -3,6 +3,7 @@ import { ADDITIONAL_PUBLIC_DOMAIN_BOOKS } from './moreBooks';
 import { FULL_NOVEL_SENTENCES, PARAPHRASE_BOOK_IDS } from './fullNovels';
 import { MIDDLE_SCHOOL_EXTRA_BOOKS } from './middleSchoolBooks';
 import { HIGH_SCHOOL_EXTRA_BOOKS } from './highSchoolBooks';
+import { EXTRA_TYPING_SENTENCES } from './extraPassages';
 import { normalizeTypingText } from '../utils/hangul';
 
 /** 학교 필사에 맞지 않거나(성인·과도한 폭력) 한국에서 저작권이 남은 작품 */
@@ -1033,16 +1034,22 @@ export const PUBLIC_DOMAIN_BOOKS: BookExcerpt[] = BOOK_CATALOG
   .filter((book) => !PARAPHRASE_BOOK_IDS.has(book.id))
   .filter((book) => !NOT_FOR_MIDDLE_SCHOOL.has(book.id))
   .map((book) => {
-    const sentences = FULL_NOVEL_SENTENCES[book.id];
-    if (!sentences?.length) return book;
-    return {
-      ...book,
-      title: '전편',
-      description: `저작권이 만료된 《${book.bookTitle}》 원문 전체를 처음부터 끝까지 필사합니다.`,
-      sourceAttribution: '위키문헌 등 공개 원문 / 저작권 만료 저작물',
-      sentences,
-      fullSentences: sentences,
-    };
+    const overlay = FULL_NOVEL_SENTENCES[book.id];
+    if (overlay?.length) {
+      return {
+        ...book,
+        title: '전편',
+        description: `저작권이 만료된 《${book.bookTitle}》 원문 전체를 처음부터 끝까지 필사합니다.`,
+        sourceAttribution: '위키문헌 등 공개 원문 / 저작권 만료 저작물',
+        sentences: overlay,
+        fullSentences: overlay,
+      };
+    }
+    const extra = EXTRA_TYPING_SENTENCES[book.id];
+    if (!extra?.length) return book;
+    const base = book.fullSentences?.length ? book.fullSentences : book.sentences;
+    const all = [...base, ...extra];
+    return { ...book, sentences: all, fullSentences: all };
   });
 
 export function getTypingSentences(book: BookExcerpt): string[] {
