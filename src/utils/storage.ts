@@ -31,9 +31,15 @@ export const DEFAULT_SETTINGS: TypingSettings = {
 };
 
 export const RANKING_MIN_ACCURACY = 80;
+export const REPEAT_SCORE_DECAY = 0.7;
 
 export function rankingSessions(history: TypingSessionResult[]): TypingSessionResult[] {
   return history.filter((item) => Number(item.accuracy) >= RANKING_MIN_ACCURACY);
+}
+
+export function repeatScoreWeight(repeatCount: number): number {
+  const count = Math.max(1, Math.floor(Number(repeatCount) || 1));
+  return Math.max(0.1, Number(Math.pow(REPEAT_SCORE_DECAY, count - 1).toFixed(4)));
 }
 
 function isDemoRecordId(id: unknown): boolean {
@@ -75,7 +81,13 @@ export function saveTypingResult(result: TypingSessionResult): TypingSessionResu
   try {
     const history = getStoredHistory();
     const existing = history.find((item) => item.excerptId === result.excerptId);
-    const next = { ...result, id: existing?.id || result.id };
+    const repeatCount = existing ? Number(existing.repeatCount || 1) + 1 : 1;
+    const next = {
+      ...result,
+      id: existing?.id || result.id,
+      repeatCount,
+      earnedEffortPoints: Math.round((result.earnedEffortPoints || 0) * repeatScoreWeight(repeatCount)),
+    };
     const updated = oneSessionPerWork([next, ...history.filter((item) => item.excerptId !== result.excerptId)]);
     localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(updated));
     return updated;

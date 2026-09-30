@@ -4,7 +4,8 @@ import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypt
 import { DatabaseSync } from 'node:sqlite';
 import type { BookReport, StudentAccount, StudentRankRecord, TypingProgress, TypingSessionResult } from '../src/types';
 import { expandSchoolName } from '../src/utils/schoolName';
-import { calculateCumulativeEffortScore, getTitleBadge, RANKING_MIN_ACCURACY } from '../src/utils/storage';
+import { calculateCumulativeEffortScore, getTitleBadge, RANKING_MIN_ACCURACY, repeatScoreWeight } from '../src/utils/storage';
+import { normalizeTypingText } from '../src/utils/hangul';
 import {
   DEFAULT_ADMIN_PASSWORD,
   DEFAULT_ADMIN_USERNAME,
@@ -208,6 +209,7 @@ function mapSession(row: SqlRow): TypingSessionResult {
     durationSeconds: Number(row.duration_seconds),
     mistypedLetters,
     earnedEffortPoints: Number(row.effort_points || 0),
+    repeatCount: Number(row.repeat_count || 1),
     studentProfile: {
       schoolYear: '',
       schoolName: '',
@@ -340,6 +342,12 @@ async function migrateExtraColumns(): Promise<void> {
     'ALTER TABLE students ADD COLUMN failed_logins INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE teachers ADD COLUMN failed_logins INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE admins ADD COLUMN failed_logins INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE students ADD COLUMN lock_level INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE students ADD COLUMN locked_until BIGINT NOT NULL DEFAULT 0',
+    'ALTER TABLE teachers ADD COLUMN lock_level INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE teachers ADD COLUMN locked_until BIGINT NOT NULL DEFAULT 0',
+    'ALTER TABLE typing_sessions ADD COLUMN repeat_count INTEGER NOT NULL DEFAULT 1',
+    'ALTER TABLE typing_sessions ADD COLUMN score_weight REAL NOT NULL DEFAULT 1',
   ];
   for (const sql of teacherAlters) {
     try {
@@ -448,30 +456,46 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 const LOGIN_FAIL_LIMIT = 5;
+const LOCK_STEP_MS = 5 * 60 * 1000;
+
+function lockWaitMessage(until: number): string {
+  const mins = Math.max(1, Math.ceil((until - Date.now()) / 60000));
+  return `로그인이 ${mins}분간 잠겨 있습니다. 5회씩 틀릴 때마다 대기 시간이 늘어납니다. 관리자가 암호(성명)를 바꾸면 잠금이 해제됩니다.`;
+}
 
 async function bumpLoginFailures(
   table: 'students' | 'teachers',
   id: string
-): Promise<{ deleted: boolean; left: number }> {
-  const rows = await query(`SELECT failed_logins FROM ${table} WHERE id = ? LIMIT 1`, [id]);
+): Promise<{ locked: boolean; left: number; until: number; minutes: number }> {
+  const rows = await query(
+    `SELECT failed_logins, lock_level, locked_until FROM ${table} WHERE id = ? LIMIT 1`,
+    [id]
+  );
+  const now = Date.now();
+  const untilNow = Number(rows[0]?.locked_until || 0);
+  if (untilNow > now) {
+    return { locked: true, left: 0, until: untilNow, minutes: Math.max(1, Math.ceil((untilNow - now) / 60000)) };
+  }
   const next = Number(rows[0]?.failed_logins || 0) + 1;
   if (next >= LOGIN_FAIL_LIMIT) {
-    if (table === 'students') {
-      await deleteStudentAccount(id);
-    } else {
-      await run('DELETE FROM teachers WHERE id = ?', [id]);
-    }
-    return { deleted: true, left: 0 };
+    const level = Number(rows[0]?.lock_level || 0) + 1;
+    const until = now + level * LOCK_STEP_MS;
+    await run(`UPDATE ${table} SET failed_logins = 0, lock_level = ?, locked_until = ? WHERE id = ?`, [
+      level,
+      until,
+      id,
+    ]);
+    return { locked: true, left: 0, until, minutes: level * 5 };
   }
   await run(`UPDATE ${table} SET failed_logins = ? WHERE id = ?`, [next, id]);
-  return { deleted: false, left: LOGIN_FAIL_LIMIT - next };
+  return { locked: false, left: LOGIN_FAIL_LIMIT - next, until: 0, minutes: 0 };
 }
 
-function failLoginMessage(result: { deleted: boolean; left: number }, kind: string): string {
-  if (result.deleted) {
-    return `로그인 5회 실패로 해당 ${kind} 아이디가 삭제되었습니다. 다시 회원가입해 주세요.`;
+function failLoginMessage(result: { locked: boolean; left: number; minutes: number; until: number }, kind: string): string {
+  if (result.locked) {
+    return lockWaitMessage(result.until || Date.now() + result.minutes * 60000);
   }
-  return `로그인 정보가 올바르지 않습니다. 5회 실패 시 아이디가 삭제됩니다. (남은 횟수: ${result.left}회)`;
+  return `로그인 정보가 올바르지 않습니다. 5회 실패 시 ${kind} 로그인이 잠시 잠깁니다. (남은 횟수: ${result.left}회)`;
 }
 
 export async function registerStudent(data: {
@@ -554,6 +578,11 @@ export async function loginStudent(data: {
       message: `입력하신 정보(${schoolYear} ${schoolName} ${grade}학년 ${classNum}반 ${studentNum}번)로 등록된 계정이 없습니다. [회원가입] 탭에서 먼저 등록해주세요.`,
     };
   }
+  const lockRows = await query('SELECT locked_until FROM students WHERE id = ? LIMIT 1', [matched.id]);
+  const lockedUntil = Number(lockRows[0]?.locked_until || 0);
+  if (lockedUntil > Date.now()) {
+    return { success: false, message: lockWaitMessage(lockedUntil) };
+  }
   if (matched.name.trim() !== name) {
     const fail = await bumpLoginFailures('students', matched.id);
     return {
@@ -563,7 +592,10 @@ export async function loginStudent(data: {
   }
 
   const now = Date.now();
-  await run('UPDATE students SET last_login_at = ?, failed_logins = 0 WHERE id = ?', [now, matched.id]);
+  await run(
+    'UPDATE students SET last_login_at = ?, failed_logins = 0, lock_level = 0, locked_until = 0 WHERE id = ?',
+    [now, matched.id]
+  );
   const account = { ...matched, lastLoginAt: now };
   return {
     success: true,
@@ -582,10 +614,13 @@ export async function saveSession(
   result: TypingSessionResult
 ): Promise<TypingSessionResult[]> {
   const existing = await query(
-    'SELECT id FROM typing_sessions WHERE student_id = ? AND excerpt_id = ? ORDER BY created_at DESC',
+    'SELECT id, repeat_count FROM typing_sessions WHERE student_id = ? AND excerpt_id = ? ORDER BY created_at DESC',
     [studentId, result.excerptId]
   );
   const keepId = existing[0] ? String(existing[0].id) : result.id;
+  const repeatCount = existing[0] ? Number(existing[0].repeat_count || 1) + 1 : 1;
+  const scoreWeight = repeatScoreWeight(repeatCount);
+  const effortPoints = Math.round((result.earnedEffortPoints || 0) * scoreWeight);
   const values = [
     result.excerptId,
     result.bookTitle,
@@ -600,8 +635,10 @@ export async function saveSession(
     result.totalStrokes,
     result.durationSeconds,
     JSON.stringify(result.mistypedLetters || {}),
-    result.earnedEffortPoints || 0,
+    effortPoints,
     result.timestamp || Date.now(),
+    repeatCount,
+    scoreWeight,
   ];
   if (existing[0]) {
     await run(
@@ -609,7 +646,8 @@ export async function saveSession(
         excerpt_id = ?, book_title = ?, author = ?, excerpt_title = ?,
         cpm = ?, wpm = ?, peak_cpm = ?, accuracy = ?, error_count = ?,
         total_chars = ?, total_strokes = ?, duration_seconds = ?,
-        mistyped_letters = ?, effort_points = ?, created_at = ?
+        mistyped_letters = ?, effort_points = ?, created_at = ?,
+        repeat_count = ?, score_weight = ?
        WHERE id = ? AND student_id = ?`,
       [...values, keepId, studentId]
     );
@@ -621,8 +659,9 @@ export async function saveSession(
       `INSERT INTO typing_sessions (
         id, student_id, excerpt_id, book_title, author, excerpt_title,
         cpm, wpm, peak_cpm, accuracy, error_count, total_chars, total_strokes,
-        duration_seconds, mistyped_letters, effort_points, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        duration_seconds, mistyped_letters, effort_points, created_at,
+        repeat_count, score_weight
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [keepId, studentId, ...values]
     );
   }
@@ -791,9 +830,9 @@ export async function getLeaderboard(filter: {
       s.student_num,
       s.name,
       COUNT(ts.id) AS completed_sessions,
-      COALESCE(SUM(ts.total_chars), 0) AS total_chars,
-      COALESCE(SUM(ts.total_strokes), 0) AS total_strokes,
-      COALESCE(SUM(ts.duration_seconds), 0) AS total_practice_time_sec,
+      COALESCE(SUM(ts.total_chars * COALESCE(ts.score_weight, 1)), 0) AS total_chars,
+      COALESCE(SUM(ts.total_strokes * COALESCE(ts.score_weight, 1)), 0) AS total_strokes,
+      COALESCE(SUM(ts.duration_seconds * COALESCE(ts.score_weight, 1)), 0) AS total_practice_time_sec,
       COALESCE(MAX(ts.peak_cpm), 0) AS peak_cpm,
       COALESCE(AVG(ts.cpm), 0) AS avg_cpm,
       COALESCE(AVG(ts.accuracy), 0) AS avg_accuracy,
@@ -1022,6 +1061,10 @@ export async function loginAdmin(
   const teacherRows = await query('SELECT * FROM teachers WHERE username = ? LIMIT 1', [name]);
   const teacherRow = teacherRows[0];
   if (teacherRow) {
+    const lockedUntil = Number(teacherRow.locked_until || 0);
+    if (lockedUntil > Date.now()) {
+      return { success: false, message: lockWaitMessage(lockedUntil) };
+    }
     if (verifyPassword(pass, String(teacherRow.password_hash))) {
       if (Number(teacherRow.approved ?? 1) === 0) {
         return { success: false, message: '관리자 승인 후 로그인할 수 있습니다.' };
@@ -1031,7 +1074,10 @@ export async function loginAdmin(
       const grade = Number(teacherRow.grade || 0);
       const classNum = Number(teacherRow.class_num || 0);
       const role: StaffRole = Number(teacherRow.is_school_admin) === 1 ? 'school_admin' : 'teacher';
-      await run('UPDATE teachers SET last_login_at = ?, failed_logins = 0 WHERE id = ?', [now, String(teacherRow.id)]);
+      await run(
+        'UPDATE teachers SET last_login_at = ?, failed_logins = 0, lock_level = 0, locked_until = 0 WHERE id = ?',
+        [now, String(teacherRow.id)]
+      );
       const admin: AdminAccount = {
         id: String(teacherRow.id),
         username: String(teacherRow.username),
@@ -1270,7 +1316,8 @@ export async function updateTeacher(
     if (password) {
       await run(
         `UPDATE teachers
-         SET school_name = ?, username = ?, password_hash = ?, grade = ?, class_num = ?, is_school_admin = ?, approved = ?
+         SET school_name = ?, username = ?, password_hash = ?, grade = ?, class_num = ?, is_school_admin = ?, approved = ?,
+             failed_logins = 0, lock_level = 0, locked_until = 0
          WHERE id = ?`,
         [schoolName, username, hashPassword(password), grade, classNum, schoolAdmin ? 1 : 0, approved ? 1 : 0, id]
       );
@@ -1465,7 +1512,10 @@ export async function updateStudentAccount(
   const nextId = buildStudentAccountId(schoolYear, schoolName, grade, classNum, studentNum);
   const now = Date.now();
   if (nextId === id) {
-    await run('UPDATE students SET name = ?, last_login_at = ? WHERE id = ?', [name, now, id]);
+    await run(
+      'UPDATE students SET name = ?, last_login_at = ?, failed_logins = 0, lock_level = 0, locked_until = 0 WHERE id = ?',
+      [name, now, id]
+    );
     return {
       success: true,
       message: '학생 정보를 수정했습니다.',
@@ -1606,6 +1656,170 @@ export async function saveTypingProgress(studentId: string, progress: TypingProg
 
 export async function clearTypingProgress(studentId: string, excerptId: string): Promise<void> {
   await run('DELETE FROM typing_progress WHERE student_id = ? AND excerpt_id = ?', [studentId, excerptId]);
+}
+
+export type SchoolWorkSummary = {
+  id: string;
+  schoolName: string;
+  teacherUsername: string;
+  title: string;
+  author: string;
+  createdAt: number;
+};
+
+function splitWorkSentences(text: string): string[] {
+  const sentences: string[] = [];
+  for (const para of String(text || '')
+    .replace(/\r\n/g, '\n')
+    .split(/\n+/)) {
+    let rest = normalizeTypingText(para);
+    if (!rest) continue;
+    while (rest.length > 120) {
+      let cut = rest.lastIndexOf(' ', 120);
+      if (cut < 40) cut = 120;
+      sentences.push(rest.slice(0, cut).trim());
+      rest = rest.slice(cut).trim();
+    }
+    if (rest) sentences.push(rest);
+  }
+  return sentences.slice(0, 800);
+}
+
+function mapSchoolWorkSummary(row: SqlRow): SchoolWorkSummary {
+  return {
+    id: String(row.id),
+    schoolName: String(row.school_name),
+    teacherUsername: String(row.teacher_username),
+    title: String(row.title),
+    author: String(row.author || ''),
+    createdAt: Number(row.created_at),
+  };
+}
+
+export async function listSchoolWorks(schoolName: string): Promise<SchoolWorkSummary[]> {
+  const name = expandSchoolName(schoolName) || String(schoolName || '').trim();
+  if (!name) return [];
+  const rows = await query(
+    'SELECT id, school_name, teacher_username, title, author, created_at FROM school_works WHERE school_name = ? ORDER BY created_at DESC',
+    [name]
+  );
+  return rows.map(mapSchoolWorkSummary);
+}
+
+export async function createSchoolWork(data: {
+  schoolName: string;
+  teacherUsername: string;
+  title: string;
+  author: string;
+  password: string;
+  text: string;
+}): Promise<{ success: boolean; message: string; works?: SchoolWorkSummary[] }> {
+  const schoolName = expandSchoolName(data.schoolName);
+  const title = String(data.title || '').trim();
+  const password = String(data.password || '').trim();
+  const sentences = splitWorkSentences(data.text);
+  if (!schoolName) return { success: false, message: '학교 정보가 없습니다.' };
+  if (!title) return { success: false, message: '작품 제목을 입력해주세요.' };
+  if (password.length < 2) return { success: false, message: '작품 암호를 2자 이상 입력해주세요.' };
+  if (!sentences.length) return { success: false, message: '필사할 글이 없습니다. 텍스트를 붙여넣거나 파일을 올려 주세요.' };
+  const id = `work-${Date.now().toString(36)}-${randomBytes(3).toString('hex')}`;
+  await run(
+    `INSERT INTO school_works (id, school_name, teacher_username, title, author, password_hash, sentences, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id,
+      schoolName,
+      String(data.teacherUsername || '').trim(),
+      title,
+      String(data.author || '선생님').trim() || '선생님',
+      hashPassword(password),
+      JSON.stringify(sentences),
+      Date.now(),
+    ]
+  );
+  return { success: true, message: '학교 작품을 올렸습니다.', works: await listSchoolWorks(schoolName) };
+}
+
+export async function updateSchoolWork(
+  id: string,
+  schoolName: string,
+  patch: { title?: string; author?: string; password?: string; text?: string }
+): Promise<{ success: boolean; message: string; works?: SchoolWorkSummary[] }> {
+  const name = expandSchoolName(schoolName);
+  const rows = await query('SELECT * FROM school_works WHERE id = ? AND school_name = ? LIMIT 1', [id, name]);
+  if (!rows[0]) return { success: false, message: '작품을 찾을 수 없습니다.' };
+  const title = patch.title === undefined ? String(rows[0].title) : String(patch.title).trim();
+  const author = patch.author === undefined ? String(rows[0].author) : String(patch.author).trim() || '선생님';
+  if (!title) return { success: false, message: '작품 제목을 입력해주세요.' };
+  const password = String(patch.password || '').trim();
+  let sentences = String(rows[0].sentences);
+  if (patch.text !== undefined) {
+    const next = splitWorkSentences(patch.text);
+    if (!next.length) return { success: false, message: '필사할 글이 없습니다.' };
+    sentences = JSON.stringify(next);
+  }
+  if (password) {
+    if (password.length < 2) return { success: false, message: '작품 암호를 2자 이상 입력해주세요.' };
+    await run(
+      'UPDATE school_works SET title = ?, author = ?, password_hash = ?, sentences = ? WHERE id = ? AND school_name = ?',
+      [title, author, hashPassword(password), sentences, id, name]
+    );
+  } else {
+    await run(
+      'UPDATE school_works SET title = ?, author = ?, sentences = ? WHERE id = ? AND school_name = ?',
+      [title, author, sentences, id, name]
+    );
+  }
+  return { success: true, message: '작품을 수정했습니다.', works: await listSchoolWorks(name) };
+}
+
+export async function deleteSchoolWork(
+  id: string,
+  schoolName: string
+): Promise<{ success: boolean; message: string; works?: SchoolWorkSummary[] }> {
+  const name = expandSchoolName(schoolName);
+  await run('DELETE FROM school_works WHERE id = ? AND school_name = ?', [id, name]);
+  return { success: true, message: '작품을 삭제했습니다.', works: await listSchoolWorks(name) };
+}
+
+export async function unlockSchoolWork(
+  id: string,
+  password: string
+): Promise<{ success: boolean; message: string; book?: import('../src/types').BookExcerpt }> {
+  const rows = await query('SELECT * FROM school_works WHERE id = ? LIMIT 1', [id]);
+  if (!rows[0]) return { success: false, message: '작품을 찾을 수 없습니다.' };
+  if (!verifyPassword(String(password || ''), String(rows[0].password_hash))) {
+    return { success: false, message: '작품 암호가 올바르지 않습니다.' };
+  }
+  let sentences: string[] = [];
+  try {
+    const parsed = JSON.parse(String(rows[0].sentences || '[]'));
+    sentences = Array.isArray(parsed) ? parsed.map((item) => String(item)) : [];
+  } catch {
+    sentences = [];
+  }
+  if (!sentences.length) return { success: false, message: '작품 본문이 없습니다.' };
+  return {
+    success: true,
+    message: '암호가 확인되었습니다.',
+    book: {
+      id: `school-${rows[0].id}`,
+      bookTitle: String(rows[0].title),
+      author: String(rows[0].author || '선생님'),
+      authorBio: `${rows[0].school_name} 선생님이 올린 필사 작품입니다.`,
+      year: '학교 작품',
+      category: '한국 고전·수필',
+      difficulty: '중급',
+      title: '전편',
+      description: '우리 학교 선생님이 올린 작품입니다. 암호를 아는 학생만 필사할 수 있습니다.',
+      sourceAttribution: '학교 제공 자료',
+      publicDomainReason: '해당 학교에서만 필사하는 자료입니다.',
+      badgeColor: 'bg-sky-50 text-sky-800 border-sky-200',
+      coverGradient: 'from-sky-950 to-slate-950',
+      sentences,
+      fullSentences: sentences,
+    },
+  };
 }
 
 export function resetSchemaCache(): void {

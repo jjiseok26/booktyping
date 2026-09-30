@@ -32,6 +32,11 @@ import {
   clearTypingProgress,
   updateStudentAccount,
   updateTeacher,
+  listSchoolWorks,
+  createSchoolWork,
+  updateSchoolWork,
+  deleteSchoolWork,
+  unlockSchoolWork,
   type AdminAccount,
 } from './db';
 import { readStudentToken, signStudentToken } from './adminAuth.js';
@@ -162,13 +167,9 @@ async function requireStudentEditor(req: express.Request, res: express.Response)
   return staff;
 }
 
-function staffScope(staff: AdminAccount) {
+function staffScope(staff: AdminAccount): { schoolName?: string; grade?: number; classNum?: number } {
   if (staff.role === 'admin') return {};
-  return {
-    schoolName: staff.schoolName,
-    grade: staff.role === 'teacher' ? staff.grade : 0,
-    classNum: staff.role === 'teacher' ? staff.classNum : 0,
-  };
+  return { schoolName: staff.schoolName };
 }
 
 function studentInStaffScope(
@@ -760,6 +761,72 @@ app.delete(
     const staff = await requireAdminOnly(req, res);
     if (!staff) return;
     res.json({ success: true, teachers: await deleteTeacher(req.params.id) });
+  })
+);
+
+app.get(
+  '/api/school-works',
+  asyncRoute(async (req, res) => {
+    res.json({ success: true, works: await listSchoolWorks(String(req.query.schoolName || '')) });
+  })
+);
+
+app.post(
+  '/api/school-works',
+  asyncRoute(async (req, res) => {
+    if (req.body?.action === 'unlock') {
+      const result = await unlockSchoolWork(String(req.body.id || ''), String(req.body.password || ''));
+      res.status(result.success ? 200 : 400).json(result);
+      return;
+    }
+    const staff = await requireStaff(req, res);
+    if (!staff) return;
+    if (staff.role !== 'teacher' && staff.role !== 'school_admin') {
+      res.status(403).json({ success: false, message: '선생님만 작품을 올릴 수 있습니다.' });
+      return;
+    }
+    const result = await createSchoolWork({
+      schoolName: staff.schoolName,
+      teacherUsername: staff.username,
+      title: String(req.body?.title || ''),
+      author: String(req.body?.author || ''),
+      password: String(req.body?.password || ''),
+      text: String(req.body?.text || ''),
+    });
+    res.status(result.success ? 200 : 400).json(result);
+  })
+);
+
+app.patch(
+  '/api/school-works',
+  asyncRoute(async (req, res) => {
+    const staff = await requireStaff(req, res);
+    if (!staff) return;
+    if (staff.role !== 'teacher' && staff.role !== 'school_admin') {
+      res.status(403).json({ success: false, message: '선생님만 작품을 수정할 수 있습니다.' });
+      return;
+    }
+    const result = await updateSchoolWork(String(req.query.id || req.body?.id || ''), staff.schoolName, {
+      title: req.body?.title,
+      author: req.body?.author,
+      password: req.body?.password,
+      text: req.body?.text,
+    });
+    res.status(result.success ? 200 : 400).json(result);
+  })
+);
+
+app.delete(
+  '/api/school-works',
+  asyncRoute(async (req, res) => {
+    const staff = await requireStaff(req, res);
+    if (!staff) return;
+    if (staff.role !== 'teacher' && staff.role !== 'school_admin') {
+      res.status(403).json({ success: false, message: '선생님만 작품을 삭제할 수 있습니다.' });
+      return;
+    }
+    const result = await deleteSchoolWork(String(req.query.id || ''), staff.schoolName);
+    res.json(result);
   })
 );
 

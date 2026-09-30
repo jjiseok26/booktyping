@@ -17,10 +17,11 @@ import {
   School,
   Menu,
   X,
+  KeyRound,
 } from 'lucide-react';
 import { FontFamily, FontSize, SoundType, TypingSettings, StudentProfile, StudentAccount } from '../types';
 
-type AppView = 'typing' | 'books' | 'dashboard' | 'leaderboard' | 'reports';
+type AppView = 'typing' | 'books' | 'school-books' | 'dashboard' | 'leaderboard' | 'reports';
 
 interface HeaderProps {
   currentView: AppView;
@@ -40,6 +41,7 @@ interface HeaderProps {
 const NAV_ITEMS: Array<{ id: AppView; label: string; Icon: typeof Keyboard }> = [
   { id: 'typing', label: '타자 필사', Icon: Keyboard },
   { id: 'books', label: '작품 서재', Icon: BookOpen },
+  { id: 'school-books', label: '학교 작품', Icon: KeyRound },
   { id: 'leaderboard', label: '반별 순위표', Icon: Trophy },
   { id: 'reports', label: '독서기록장', Icon: FileText },
   { id: 'dashboard', label: '통계', Icon: BarChart3 },

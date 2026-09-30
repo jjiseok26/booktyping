@@ -493,3 +493,58 @@ export async function apiAdminDeleteTeacher(id: string) {
   }>(`/api/admin-teachers?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
   return data.teachers || [];
 }
+
+export type SchoolWorkSummary = {
+  id: string;
+  schoolName: string;
+  teacherUsername: string;
+  title: string;
+  author: string;
+  createdAt: number;
+};
+
+export async function apiListSchoolWorks(schoolName: string): Promise<SchoolWorkSummary[]> {
+  const data = await request<{ works?: SchoolWorkSummary[] }>(
+    `/api/school-works?schoolName=${encodeURIComponent(schoolName)}`
+  );
+  return data.works || [];
+}
+
+export async function apiUnlockSchoolWork(id: string, password: string) {
+  return request<{ book?: import('../types').BookExcerpt }>('/api/school-works', {
+    method: 'POST',
+    body: JSON.stringify({ action: 'unlock', id, password }),
+  });
+}
+
+export async function apiCreateSchoolWork(payload: {
+  title: string;
+  author: string;
+  password: string;
+  text: string;
+}): Promise<SchoolWorkSummary[]> {
+  const data = await adminRequest<{ works?: SchoolWorkSummary[] }>('/api/school-works', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  return data.works || [];
+}
+
+export async function apiUpdateSchoolWork(
+  id: string,
+  payload: { title?: string; author?: string; password?: string; text?: string }
+): Promise<SchoolWorkSummary[]> {
+  const data = await adminRequest<{ works?: SchoolWorkSummary[] }>(
+    `/api/school-works?id=${encodeURIComponent(id)}`,
+    { method: 'PATCH', body: JSON.stringify(payload) }
+  );
+  return data.works || [];
+}
+
+export async function apiDeleteSchoolWork(id: string): Promise<SchoolWorkSummary[]> {
+  const data = await adminRequest<{ works?: SchoolWorkSummary[] }>(
+    `/api/school-works?id=${encodeURIComponent(id)}`,
+    { method: 'DELETE' }
+  );
+  return data.works || [];
+}

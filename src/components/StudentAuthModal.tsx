@@ -17,10 +17,6 @@ import {
   Info,
 } from 'lucide-react';
 import { StudentAccount } from '../types';
-import {
-  getRecentStudentAccounts,
-  rememberRecentAccount,
-} from '../utils/storage';
 import { apiListSchools, apiLoginStudent, apiRegisterStudent } from '../utils/dbClient';
 import { expandSchoolName } from '../utils/schoolName';
 import { SchoolNameField } from './SchoolNameField';
@@ -56,20 +52,13 @@ export const StudentAuthModal: React.FC<StudentAuthModalProps> = ({
 
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [savedAccounts, setSavedAccounts] = useState<StudentAccount[]>([]);
   const [registeredSchools, setRegisteredSchools] = useState<string[]>([]);
 
-  // Refresh saved accounts and populate defaults when modal opens
   useEffect(() => {
     if (!isOpen) return;
-    const accounts = getRecentStudentAccounts();
-    setSavedAccounts(accounts);
     setError(null);
     setSuccessMessage(null);
-    void apiListSchools().then((schools) => {
-      const localNames = accounts.map((acc) => acc.schoolName).filter(Boolean);
-      setRegisteredSchools(Array.from(new Set([...schools, ...localNames])));
-    });
+    void apiListSchools().then(setRegisteredSchools);
 
     if (currentAccount) {
       setSchoolYear(currentAccount.schoolYear || '2026학년도');
@@ -78,14 +67,6 @@ export const StudentAuthModal: React.FC<StudentAuthModalProps> = ({
       setClassNum(currentAccount.classNum || 1);
       setStudentNum(currentAccount.studentNum || 1);
       setName(currentAccount.name || '');
-    } else if (accounts.length > 0) {
-      const first = accounts[0];
-      setSchoolYear(first.schoolYear);
-      setSchoolName(first.schoolName);
-      setGrade(first.grade);
-      setClassNum(first.classNum);
-      setStudentNum(first.studentNum);
-      setName(first.name);
     } else {
       setSchoolYear('2026학년도');
       setSchoolName('');
@@ -103,16 +84,6 @@ export const StudentAuthModal: React.FC<StudentAuthModalProps> = ({
   }, [initialMode, isOpen]);
 
   if (!isOpen) return null;
-
-  const handleSelectSavedAccount = (acc: StudentAccount) => {
-    setSchoolYear(acc.schoolYear);
-    setSchoolName(acc.schoolName);
-    setGrade(acc.grade);
-    setClassNum(acc.classNum);
-    setStudentNum(acc.studentNum);
-    setName(acc.name);
-    setError(null);
-  };
 
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -160,8 +131,6 @@ export const StudentAuthModal: React.FC<StudentAuthModalProps> = ({
 
     setSuccessMessage(res.message);
     if (res.account) {
-      rememberRecentAccount(res.account);
-      setSavedAccounts(getRecentStudentAccounts());
       setTimeout(() => {
         onLoginSuccess(res.account!);
         onClose();
@@ -207,7 +176,6 @@ export const StudentAuthModal: React.FC<StudentAuthModalProps> = ({
 
     setSuccessMessage(res.message);
     if (res.account) {
-      rememberRecentAccount(res.account);
       setTimeout(() => {
         onLoginSuccess(res.account!);
         onClose();
@@ -315,51 +283,6 @@ export const StudentAuthModal: React.FC<StudentAuthModalProps> = ({
             <span className="truncate">신규 회원가입</span>
           </button>
         </div>
-
-        {/* Quick Account Switcher (if local accounts exist) */}
-        {savedAccounts.length > 0 && activeTab === 'login' && (
-          <div className="mt-3.5 p-3 rounded-2xl bg-stone-950/40 border border-stone-800/80">
-            <div className="flex items-center justify-between text-[11px] text-stone-400 mb-2">
-              <span className="flex items-center gap-1 font-medium">
-                <Users className="w-3.5 h-3.5 text-amber-400" />
-                이 기기에서 등록된 학생 계정 선택
-              </span>
-              <span className="text-[10px] text-stone-500">{savedAccounts.length}명</span>
-            </div>
-            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
-              {savedAccounts.map((acc) => {
-                const isSelected =
-                  acc.schoolYear === schoolYear &&
-                  acc.schoolName === schoolName &&
-                  acc.grade === grade &&
-                  acc.classNum === classNum &&
-                  acc.studentNum === studentNum;
-                return (
-                  <button
-                    key={acc.id}
-                    type="button"
-                    onClick={() => handleSelectSavedAccount(acc)}
-                    className={`px-3 py-1.5 rounded-xl text-left shrink-0 text-xs transition-all border ${
-                      isSelected
-                        ? 'bg-amber-500/20 border-amber-500/60 text-amber-200 font-semibold'
-                        : 'bg-stone-800/70 border-stone-700/60 text-stone-300 hover:border-stone-600'
-                    }`}
-                  >
-                    <div className="font-bold flex items-center gap-1.5">
-                      <span>{acc.name}</span>
-                      <span className="text-[10px] font-mono opacity-80">
-                        {acc.grade}-{acc.classNum}-{acc.studentNum}
-                      </span>
-                    </div>
-                    <div className="text-[10px] text-stone-400 truncate max-w-[130px]">
-                      {acc.schoolName}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
 
         {/* Feature Explanatory Banner */}
         <div className="mt-3.5 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-200/90 text-[11px] flex items-center gap-2">

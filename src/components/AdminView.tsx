@@ -39,6 +39,11 @@ import {
   apiListSchools,
   apiTeacherLogin,
   apiTeacherRegister,
+  apiListSchoolWorks,
+  apiCreateSchoolWork,
+  apiUpdateSchoolWork,
+  apiDeleteSchoolWork,
+  type SchoolWorkSummary,
   getAdminToken,
   setAdminToken,
 } from '../utils/dbClient';
@@ -47,7 +52,7 @@ import { parseTeacherSpreadsheet, TEACHER_CSV_TEMPLATE } from '../utils/teacherW
 import { SchoolNameField } from './SchoolNameField';
 import { BookReportPrintSheet } from './BookReportPrintSheet';
 
-type AdminTab = 'overview' | 'students' | 'sessions' | 'reports' | 'teachers';
+type AdminTab = 'overview' | 'students' | 'sessions' | 'reports' | 'teachers' | 'works';
 type StaffRole = 'admin' | 'teacher' | 'school_admin';
 type LoginMode = 'admin' | 'teacher';
 type AdminStudent = StudentAccount & { sessionCount: number; reportCount: number; totalChars: number };
@@ -154,6 +159,13 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
   const [reports, setReports] = useState<BookReport[]>([]);
   const [viewingReport, setViewingReport] = useState<BookReport | null>(null);
   const [teachers, setTeachers] = useState<TeacherRow[]>([]);
+  const [schoolWorks, setSchoolWorks] = useState<SchoolWorkSummary[]>([]);
+  const [workTitle, setWorkTitle] = useState('');
+  const [workAuthor, setWorkAuthor] = useState('');
+  const [workPassword, setWorkPassword] = useState('');
+  const [workText, setWorkText] = useState('');
+  const [workMessage, setWorkMessage] = useState<string | null>(null);
+  const [savingWork, setSavingWork] = useState(false);
   const [schools, setSchools] = useState<string[]>([]);
   const [teacherSchool, setTeacherSchool] = useState('');
   const [teacherUsername, setTeacherUsername] = useState('');
@@ -184,6 +196,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
 
   const isAdmin = staffRole === 'admin';
   const canManageTeachers = staffRole === 'admin' || staffRole === 'school_admin';
+  const canManageWorks = staffRole === 'teacher' || staffRole === 'school_admin';
   const canEditStudents = staffRole === 'admin' || staffRole === 'school_admin';
   const consoleTitle =
     staffRole === 'admin' ? '관리자 콘솔' : staffRole === 'school_admin' ? '학교 최고관리자 콘솔' : '담임교사 콘솔';
@@ -209,8 +222,12 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
   };
 
   useEffect(() => {
-    void apiListSchools().then(setSchools);
-  }, []);
+    if (!adminName || !staffSchool || !canManageWorks) {
+      setSchoolWorks([]);
+      return;
+    }
+    void apiListSchoolWorks(staffSchool).then(setSchoolWorks).catch(() => setSchoolWorks([]));
+  }, [adminName, staffSchool, canManageWorks]);
 
   useEffect(() => {
     if (!getAdminToken()) {
@@ -225,6 +242,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
         setStaffSchool(data.admin.schoolName || '');
         setStaffGrade(Number(data.admin.grade || 0));
         setStaffClassNum(Number(data.admin.classNum || 0));
+        if (Number(data.admin.grade || 0) > 0) setFilterGrade(String(data.admin.grade));
         await loadDashboard(nextRole);
       })
       .catch(() => {
@@ -258,6 +276,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
       setStaffSchool(result.admin.schoolName || '');
       setStaffGrade(Number(result.admin.grade || 0));
       setStaffClassNum(Number(result.admin.classNum || 0));
+      if (Number(result.admin.grade || 0) > 0) setFilterGrade(String(result.admin.grade));
       setPassword('');
       try {
         await loadDashboard(nextRole);
@@ -720,6 +739,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
               ['students', '학생', Users],
               ['sessions', '필사 기록', Keyboard],
               ['reports', '독후감', FileText],
+              ...(canManageWorks ? ([['works', '학교 작품', BookOpen]] as const) : []),
               ...(canManageTeachers ? ([['teachers', '담임교사', UserPlus]] as const) : []),
             ] as const
           ).map(([id, label, Icon]) => (
@@ -973,6 +993,103 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
               </span>,
             ])}
           />
+        )}
+        {tab === 'works' && canManageWorks && (
+          <section className="space-y-4">
+            <form
+              className="bg-white border border-stone-200 rounded-2xl p-4 space-y-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                setSavingWork(true);
+                setWorkMessage(null);
+                void apiCreateSchoolWork({
+                  title: workTitle,
+                  author: workAuthor,
+                  password: workPassword,
+                  text: workText,
+                })
+                  .then((next) => {
+                    setSchoolWorks(next);
+                    setWorkTitle('');
+                    setWorkAuthor('');
+                    setWorkPassword('');
+                    setWorkText('');
+                    setWorkMessage('학교 작품을 올렸습니다. 학생은 학교 작품 메뉴에서 암호를 입력해 필사합니다.');
+                  })
+                  .catch((err) => setWorkMessage(err instanceof Error ? err.message : '작품을 올리지 못했습니다.'))
+                  .finally(() => setSavingWork(false));
+              }}
+            >
+              <p className="text-sm font-semibold text-stone-800">학교 작품 올리기</p>
+              <p className="text-xs text-stone-500">텍스트 파일을 올리거나 글을 붙여넣으세요. 학생이 열 때 쓸 암호를 반드시 정하세요.</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <input value={workTitle} onChange={(e) => setWorkTitle(e.target.value)} placeholder="작품 제목" className="rounded-lg border border-stone-200 px-3 py-2 text-sm" />
+                <input value={workAuthor} onChange={(e) => setWorkAuthor(e.target.value)} placeholder="글쓴이(선택)" className="rounded-lg border border-stone-200 px-3 py-2 text-sm" />
+                <input value={workPassword} onChange={(e) => setWorkPassword(e.target.value)} placeholder="작품 암호" className="rounded-lg border border-stone-200 px-3 py-2 text-sm" />
+              </div>
+              <input
+                type="file"
+                accept=".txt,text/plain"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = () => setWorkText(String(reader.result || ''));
+                  reader.readAsText(file, 'utf-8');
+                  if (!workTitle) setWorkTitle(file.name.replace(/\.txt$/i, ''));
+                }}
+                className="text-xs"
+              />
+              <textarea
+                value={workText}
+                onChange={(e) => setWorkText(e.target.value)}
+                rows={8}
+                placeholder="여기에 글을 붙여넣으세요."
+                className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm"
+              />
+              {workMessage && <p className="text-xs text-stone-600">{workMessage}</p>}
+              <button type="submit" disabled={savingWork} className="px-4 py-2 rounded-xl bg-sky-700 text-white text-sm font-semibold disabled:opacity-60">
+                {savingWork ? '올리는 중...' : '작품 등록'}
+              </button>
+            </form>
+            <div className="bg-white border border-stone-200 rounded-2xl divide-y">
+              {schoolWorks.length === 0 ? (
+                <p className="p-4 text-sm text-stone-500">등록된 학교 작품이 없습니다.</p>
+              ) : (
+                schoolWorks.map((work) => (
+                  <div key={work.id} className="p-4 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-sm">{work.title}</p>
+                      <p className="text-xs text-stone-500">{work.author} · {work.teacherUsername}</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = window.prompt('새 작품 암호');
+                          if (!next) return;
+                          void apiUpdateSchoolWork(work.id, { password: next }).then(setSchoolWorks);
+                        }}
+                        className="text-sky-700 text-xs"
+                      >
+                        암호 변경
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!window.confirm(`${work.title}을(를) 삭제할까요?`)) return;
+                          void apiDeleteSchoolWork(work.id).then(setSchoolWorks);
+                        }}
+                        className="text-rose-600 text-xs"
+                      >
+                        삭제
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
         )}
         {tab === 'teachers' && canManageTeachers && (
           <section className="space-y-4">

@@ -28,6 +28,8 @@ interface ClassLeaderboardProps {
   onStartTyping: () => void;
   currentAccount?: StudentAccount | null;
   onOpenAuthModal?: (mode?: 'login' | 'register') => void;
+  teacherConsole?: boolean;
+  onChangeGrade?: (grade: number) => void;
 }
 
 export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
@@ -37,6 +39,8 @@ export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
   onStartTyping,
   currentAccount,
   onOpenAuthModal,
+  teacherConsole,
+  onChangeGrade,
 }) => {
   const [selectedClassNum, setSelectedClassNum] = useState<number>(currentProfile.classNum);
   const [sortMode, setSortMode] = useState<RankSortMode>('effort');
@@ -216,6 +220,28 @@ export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
               <Users className="w-3.5 h-3.5 text-stone-400" />
               <span>반 둘러보기:</span>
             </span>
+            {teacherConsole && onChangeGrade && (
+              <>
+                {[1, 2, 3].map((grade) => (
+                  <button
+                    key={`g-${grade}`}
+                    type="button"
+                    onClick={() => {
+                      onChangeGrade(grade);
+                      setSelectedClassNum(0);
+                    }}
+                    className={`px-3 py-1 rounded-xl text-xs font-medium transition-all ${
+                      currentProfile.grade === grade
+                        ? 'bg-sky-500 text-white font-bold shadow-md'
+                        : 'bg-stone-800/80 text-stone-400 hover:text-stone-200 hover:bg-stone-800 border border-stone-700/60'
+                    }`}
+                  >
+                    {grade}학년
+                  </button>
+                ))}
+                <span className="text-stone-700 px-1">|</span>
+              </>
+            )}
             {classChips.map((cNum) => (
               <button
                 key={cNum}

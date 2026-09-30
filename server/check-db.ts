@@ -29,6 +29,8 @@ import {
   updateStudentAccount,
   deleteStudentAccount,
   getStudentById,
+  createSchoolWork,
+  unlockSchoolWork,
 } from './db';
 import { rowsToTeachers } from '../src/utils/teacherWorkbook';
 import { readStaffToken, readStudentToken, signStudentToken } from './adminAuth.js';
@@ -158,6 +160,9 @@ async function main() {
   if (updatedSameWork[0].totalChars !== 150 || updatedSameWork[0].accuracy !== 99) {
     throw new Error('existing session was not updated');
   }
+  if (Number(updatedSameWork[0].repeatCount) !== 2) {
+    throw new Error('repeat count should increase');
+  }
   await saveSession(login.account.id, {
     id: 'session-low-accuracy',
     timestamp: Date.now() + 2,
@@ -183,7 +188,7 @@ async function main() {
     classNum: 3,
     currentStudentId: login.account.id,
   });
-  if (boardAfterLow[0]?.totalChars !== 150) {
+  if (boardAfterLow[0]?.totalChars !== 105) {
     throw new Error(`accuracy below 80% should not count toward ranking: ${boardAfterLow[0]?.totalChars}`);
   }
   const afterOneDelete = await deleteSession('session-low-accuracy', login.account.id);
@@ -521,11 +526,31 @@ async function main() {
     });
     if (fail.success) throw new Error('wrong student name should fail');
     if (attempt < 5 && !fail.message.includes('남은 횟수')) throw new Error(fail.message);
-    if (attempt === 5 && !fail.message.includes('삭제')) throw new Error(fail.message);
+    if (attempt === 5 && !fail.message.includes('잠겨')) throw new Error(fail.message);
   }
-  if (await getStudentById(lockStudent.account.id)) {
-    throw new Error('student should be deleted after 5 failed logins');
+  if (!(await getStudentById(lockStudent.account.id))) {
+    throw new Error('student should remain after 5 failed logins');
   }
+  const stillLocked = await loginStudent({
+    schoolYear: '2026학년도',
+    schoolName: '가온중학교',
+    grade: 3,
+    classNum: 1,
+    studentNum: 99,
+    name: '잠금학생',
+  });
+  if (stillLocked.success) throw new Error('locked student should not log in yet');
+  const unlocked = await updateStudentAccount(lockStudent.account.id, { name: '잠금해제' });
+  if (!unlocked.success) throw new Error(unlocked.message);
+  const afterUnlock = await loginStudent({
+    schoolYear: '2026학년도',
+    schoolName: '가온중학교',
+    grade: 3,
+    classNum: 1,
+    studentNum: 99,
+    name: '잠금해제',
+  });
+  if (!afterUnlock.success) throw new Error(afterUnlock.message);
 
   const lockTeacher = await createTeacher({
     schoolName: '가온중',
@@ -540,7 +565,7 @@ async function main() {
     if (fail.success) throw new Error('wrong teacher password should fail');
   }
   const deletedTeacherLogin = await loginTeacher('lock-teacher', 'pass1234');
-  if (deletedTeacherLogin.success) throw new Error('teacher should be deleted after 5 failed logins');
+  if (deletedTeacherLogin.success) throw new Error('teacher should stay locked after 5 failed logins');
 
   const parsedTeachers = rowsToTeachers([
     ['학교명', '아이디', '비밀번호', '학년', '반', '구분'],
@@ -559,6 +584,20 @@ async function main() {
 
   const overview = await getAdminOverview();
   if (overview.studentCount < 1) throw new Error('admin overview missing students');
+
+  const uploaded = await createSchoolWork({
+    schoolName: '가온중학교',
+    teacherUsername: 'lock-teacher',
+    title: '우리반 글',
+    author: '담임',
+    password: 'open-sesame',
+    text: '첫 문장입니다.\n두 번째 문장입니다.',
+  });
+  if (!uploaded.success || !uploaded.works?.[0]) throw new Error(uploaded.message);
+  const wrongUnlock = await unlockSchoolWork(uploaded.works[0].id, 'nope');
+  if (wrongUnlock.success) throw new Error('wrong work password should fail');
+  const opened = await unlockSchoolWork(uploaded.works[0].id, 'open-sesame');
+  if (!opened.success || opened.book?.sentences.length !== 2) throw new Error('school work did not unlock');
 
   resetSchemaCache();
   try {

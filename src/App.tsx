@@ -8,6 +8,7 @@ import { StudentProfileModal } from './components/StudentProfileModal';
 import { BookReportsView } from './components/BookReportsView';
 import { BookReportModal } from './components/BookReportModal';
 import { StudentAuthModal } from './components/StudentAuthModal';
+import { SchoolWorksView } from './components/SchoolWorksView';
 import { BookExcerpt, TypingSettings, TypingSessionResult, StudentProfile, BookReport, StudentAccount } from './types';
 import { PUBLIC_DOMAIN_BOOKS, isWorkCompleted } from './data/books';
 import {
@@ -21,7 +22,6 @@ import {
   getStoredBookReports,
   getCurrentStudentAccount,
   setCurrentStudentAccount,
-  rememberRecentAccount,
 } from './utils/storage';
 import {
   apiAdminReports,
@@ -37,7 +37,9 @@ import { BookOpen, ShieldCheck } from 'lucide-react';
 import { AdminView } from './components/AdminView';
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<'typing' | 'books' | 'dashboard' | 'leaderboard' | 'reports' | 'admin'>(
+  const [currentView, setCurrentView] = useState<
+    'typing' | 'books' | 'school-books' | 'dashboard' | 'leaderboard' | 'reports' | 'admin'
+  >(
     window.location.hash === '#admin' || window.location.hash === '#teacher' ? 'admin' : 'typing'
   );
   const [staffLoginMode, setStaffLoginMode] = useState<'admin' | 'teacher'>(
@@ -115,7 +117,6 @@ export default function App() {
       };
       setStudentProfile(synchedProfile);
       saveStoredStudentProfile(synchedProfile);
-      rememberRecentAccount(acc);
       void Promise.all([apiListSessions(acc.id), apiListReports(acc.id)])
         .then(([sessions, dbReports]) => {
           setHistory(sessions);
@@ -162,7 +163,6 @@ export default function App() {
     setStaffBrowse(null);
     setCurrentStudentAccount(account);
     setCurrentAccount(account);
-    rememberRecentAccount(account);
     const updatedProfile: StudentProfile = {
       schoolYear: account.schoolYear,
       schoolName: account.schoolName,
@@ -367,6 +367,15 @@ export default function App() {
           />
         )}
 
+        {currentView === 'school-books' && (
+          <SchoolWorksView
+            schoolName={studentProfile.schoolName}
+            loggedIn={Boolean(currentAccount) || Boolean(staffBrowse)}
+            onOpenLogin={() => handleOpenAuthModal('login')}
+            onSelectBook={handleSelectBook}
+          />
+        )}
+
         {currentView === 'leaderboard' && (
           <ClassLeaderboard
             currentProfile={studentProfile}
@@ -375,6 +384,12 @@ export default function App() {
             onStartTyping={() => setCurrentView('typing')}
             currentAccount={staffBrowse ? null : currentAccount}
             onOpenAuthModal={handleOpenAuthModal}
+            teacherConsole={Boolean(staffBrowse)}
+            onChangeGrade={
+              staffBrowse
+                ? (grade) => setStudentProfile((prev) => ({ ...prev, grade }))
+                : undefined
+            }
           />
         )}
 

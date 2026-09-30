@@ -79,6 +79,7 @@ export interface TypingSessionResult {
   mistypedLetters: Record<string, number>; // 오타가 난 문자 통계
   studentProfile?: StudentProfile; // 세션 수행자 프로필
   earnedEffortPoints?: number;     // 이번 세션에서 획득한 노력 점수
+  repeatCount?: number;
 }
 
 export interface TypingProgress {

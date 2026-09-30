@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS students (
   created_at BIGINT NOT NULL,
   last_login_at BIGINT NOT NULL,
   failed_logins INTEGER NOT NULL DEFAULT 0,
+  lock_level INTEGER NOT NULL DEFAULT 0,
+  locked_until BIGINT NOT NULL DEFAULT 0,
   UNIQUE (school_year, school_name, grade, class_num, student_num)
 );
 
@@ -35,6 +37,8 @@ CREATE TABLE IF NOT EXISTS typing_sessions (
   duration_seconds INTEGER NOT NULL,
   mistyped_letters TEXT NOT NULL DEFAULT '{}',
   effort_points INTEGER NOT NULL DEFAULT 0,
+  repeat_count INTEGER NOT NULL DEFAULT 1,
+  score_weight REAL NOT NULL DEFAULT 1,
   created_at BIGINT NOT NULL
 );
 
@@ -85,7 +89,9 @@ CREATE TABLE IF NOT EXISTS teachers (
   approved INTEGER NOT NULL DEFAULT 1,
   created_at BIGINT NOT NULL,
   last_login_at BIGINT NOT NULL,
-  failed_logins INTEGER NOT NULL DEFAULT 0
+  failed_logins INTEGER NOT NULL DEFAULT 0,
+  lock_level INTEGER NOT NULL DEFAULT 0,
+  locked_until BIGINT NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS admins (
@@ -103,3 +109,16 @@ CREATE TABLE IF NOT EXISTS admin_sessions (
   created_at BIGINT NOT NULL,
   expires_at BIGINT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS school_works (
+  id TEXT PRIMARY KEY,
+  school_name TEXT NOT NULL,
+  teacher_username TEXT NOT NULL,
+  title TEXT NOT NULL,
+  author TEXT NOT NULL DEFAULT '',
+  password_hash TEXT NOT NULL,
+  sentences TEXT NOT NULL,
+  created_at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_school_works_school ON school_works (school_name, created_at DESC);
+
