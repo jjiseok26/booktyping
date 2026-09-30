@@ -2,6 +2,7 @@ import { BookExcerpt } from '../types';
 import { ADDITIONAL_PUBLIC_DOMAIN_BOOKS } from './moreBooks';
 import { FULL_NOVEL_SENTENCES, PARAPHRASE_BOOK_IDS } from './fullNovels';
 import { MIDDLE_SCHOOL_EXTRA_BOOKS } from './middleSchoolBooks';
+import { normalizeTypingText } from '../utils/hangul';
 
 /** 중학생 필사에 맞지 않거나(폭력·성인 주제·난해한 한문 고전) 저작권이 남은 작품 */
 const NOT_FOR_MIDDLE_SCHOOL = new Set([
@@ -1051,8 +1052,8 @@ export const PUBLIC_DOMAIN_BOOKS: BookExcerpt[] = BOOK_CATALOG
   });
 
 export function getTypingSentences(book: BookExcerpt): string[] {
-  if (book.fullSentences && book.fullSentences.length > 0) return book.fullSentences;
-  return book.sentences;
+  const raw = book.fullSentences && book.fullSentences.length > 0 ? book.fullSentences : book.sentences;
+  return raw.map((sentence) => normalizeTypingText(sentence)).filter((sentence) => sentence.length > 0);
 }
 
 export function isWorkCompleted(history: { excerptId: string }[], excerptId: string): boolean {

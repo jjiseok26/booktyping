@@ -34,6 +34,7 @@ import { rowsToTeachers } from '../src/utils/teacherWorkbook';
 import { readStaffToken, readStudentToken, signStudentToken } from './adminAuth.js';
 import { isSealed, open, seal } from './crypto.js';
 import { expandSchoolName } from '../src/utils/schoolName';
+import { normalizeTypingText } from '../src/utils/hangul';
 
 const dbFile = path.join(process.cwd(), 'data', 'booktyping.check.sqlite');
 
@@ -49,6 +50,16 @@ async function main() {
   delete process.env.DATABASE_URL;
   delete process.env.POSTGRES_URL;
   resetSchemaCache();
+
+  if (normalizeTypingText('\u201C안녕\u201D') !== '"안녕"') {
+    throw new Error('curly quotes should become keyboard quotes');
+  }
+  if (normalizeTypingText('\u{1F65D}\u{1F65F} 비') !== '비') {
+    throw new Error('broken dingbat quotes should be removed');
+  }
+  if (normalizeTypingText('그렇다\u2026') !== '그렇다...') {
+    throw new Error('ellipsis should become three periods');
+  }
 
   const created = await registerStudent({
     schoolYear: '2026학년도',

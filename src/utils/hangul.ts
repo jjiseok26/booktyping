@@ -96,6 +96,34 @@ export function decomposeChar(char: string): DecomposedChar {
   };
 }
 
+const DOUBLE_QUOTES = /[\u201C\u201D\u201E\u201F\u00AB\u00BB\uFF02\u301D\u301E\u300C\u300D\u300E\u300F]/g;
+const SINGLE_QUOTES = /[\u2018\u2019\u201A\u201B\u2032\uFF07]/g;
+const DINGBAT_QUOTE_PAIR = /\u{1F65D}\u{1F65F}/gu;
+const DINGBAT_QUOTES = /[\u{1F65D}\u{1F65F}]/gu;
+
+/** Make literature text match what a Korean keyboard actually types. */
+export function normalizeTypingText(text: string, trimEnds = true): string {
+  let next = text
+    .replace(DINGBAT_QUOTE_PAIR, '')
+    .replace(DINGBAT_QUOTES, '"')
+    .replace(DOUBLE_QUOTES, '"')
+    .replace(SINGLE_QUOTES, "'")
+    .replace(/\u2026/g, '...')
+    .replace(/[—–―−]/g, '-')
+    .replace(/×/g, 'x')
+    .replace(/〔/g, '[')
+    .replace(/〕/g, ']')
+    .replace(/[\u00A0\u202F\u3000]/g, ' ')
+    .replace(/[\u200B-\u200D\uFEFF\uFFFD]/g, '');
+  if (trimEnds) next = next.replace(/ {2,}/g, ' ').trim();
+  return next;
+}
+
+function sameTypingChar(a: string, b: string): boolean {
+  if (a === b) return true;
+  return normalizeTypingText(a) === normalizeTypingText(b);
+}
+
 /**
  * Calculates total strokes for a string
  */
@@ -120,7 +148,7 @@ export function compareCharAccuracy(targetChar: string, typedChar: string): {
     return { isExact: false, correctStrokes: 0, totalTargetStrokes: targetDec.strokes };
   }
 
-  if (targetChar === typedChar) {
+  if (sameTypingChar(targetChar, typedChar)) {
     return { isExact: true, correctStrokes: targetDec.strokes, totalTargetStrokes: targetDec.strokes };
   }
 

@@ -12,7 +12,7 @@ import {
   VolumeX,
 } from 'lucide-react';
 import { BookExcerpt, TypingSettings, TypingSessionResult, StudentProfile, TypingProgress } from '../types';
-import { decomposeChar, countTotalStrokes, compareCharAccuracy } from '../utils/hangul';
+import { decomposeChar, countTotalStrokes, compareCharAccuracy, normalizeTypingText } from '../utils/hangul';
 import { playKeySound, playCompletionSound } from '../utils/sound';
 import { calculateSessionEffortPoints, clearStoredProgress, getStoredProgress, saveStoredProgress } from '../utils/storage';
 import { getTypingSentences } from '../data/books';
@@ -317,7 +317,7 @@ export const TypingArea: React.FC<TypingAreaProps> = ({
 
   // Handle live input change & Korean typing analysis
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
+    const value = normalizeTypingText(e.target.value, false);
 
     if (!startTime) {
       setStartTime(Date.now());
@@ -629,8 +629,8 @@ export const TypingArea: React.FC<TypingAreaProps> = ({
               const typedChar = userInput[index];
               const isTyped = index < userInput.length;
               const isCurrent = index === userInput.length;
-              const isCorrect = isTyped && typedChar === char;
-              const isIncorrect = isTyped && typedChar !== char;
+              const isCorrect = isTyped && compareCharAccuracy(char, typedChar).isExact;
+              const isIncorrect = isTyped && !isCorrect;
 
               let charStyle = 'text-stone-400';
               if (isCorrect) {
