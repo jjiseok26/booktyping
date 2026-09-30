@@ -56,7 +56,7 @@ export const BookSelector: React.FC<BookSelectorProps> = ({
               문학 서재에서 필사할 작품 고르기
             </h1>
             <p className="mt-2 text-stone-600 text-sm sm:text-base leading-relaxed max-w-3xl">
-              중학생이 읽고 필사하기 좋은 작품만 모았습니다. 윤동주·김소월·김영랑의 명시, 메밀꽃 필 무렵·동백꽃·봄봄, 토끼전·심청전 같은 고전, 어린 왕자와 피노키오·이솝까지 총 {PUBLIC_DOMAIN_BOOKS.length}편입니다. 모든 문장을 끝까지 타이핑하면 독후감을 작성할 수 있습니다.
+              중학생이 읽고 필사하기 좋은 작품만 모았습니다. 윤동주·김소월의 명시, 상록수·봄봄 같은 근대소설, 홍길동전·토끼전·허생전 같은 고전, 어린 왕자와 이솝·빨간 머리 앤까지 총 {PUBLIC_DOMAIN_BOOKS.length}편입니다. 모든 문장을 끝까지 타이핑하면 독후감을 작성할 수 있습니다.
             </p>
           </div>
 
