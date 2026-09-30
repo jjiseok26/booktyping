@@ -123,13 +123,37 @@ async function main() {
     throw new Error('leaderboard did not include the saved session');
   }
 
-  await saveSession(login.account.id, {
-    id: 'session-low-accuracy',
-    timestamp: Date.now(),
+  const updatedSameWork = await saveSession(login.account.id, {
+    id: 'session-same-work',
+    timestamp: Date.now() + 1,
     excerptId: 'yoon-seosi',
     bookTitle: '하늘과 바람과 별과 시',
     author: '윤동주',
     excerptTitle: '서시 (序詩)',
+    cpm: 340,
+    wpm: 68,
+    peakCpm: 380,
+    accuracy: 99,
+    errorCount: 0,
+    totalChars: 150,
+    totalStrokes: 300,
+    durationSeconds: 35,
+    mistypedLetters: {},
+    earnedEffortPoints: 220,
+  });
+  if (updatedSameWork.length !== 1 || updatedSameWork[0].id !== 'session-1') {
+    throw new Error('same work should update the existing session');
+  }
+  if (updatedSameWork[0].totalChars !== 150 || updatedSameWork[0].accuracy !== 99) {
+    throw new Error('existing session was not updated');
+  }
+  await saveSession(login.account.id, {
+    id: 'session-low-accuracy',
+    timestamp: Date.now() + 2,
+    excerptId: 'yoon-byeol',
+    bookTitle: '하늘과 바람과 별과 시',
+    author: '윤동주',
+    excerptTitle: '별 헤는 밤',
     cpm: 400,
     wpm: 80,
     peakCpm: 420,
@@ -148,7 +172,7 @@ async function main() {
     classNum: 3,
     currentStudentId: login.account.id,
   });
-  if (boardAfterLow[0]?.totalChars !== 120) {
+  if (boardAfterLow[0]?.totalChars !== 150) {
     throw new Error(`accuracy below 80% should not count toward ranking: ${boardAfterLow[0]?.totalChars}`);
   }
   const afterOneDelete = await deleteSession('session-low-accuracy', login.account.id);

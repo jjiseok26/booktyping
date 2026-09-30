@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS typing_sessions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_student ON typing_sessions (student_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_student_excerpt ON typing_sessions (student_id, excerpt_id);
 
 CREATE TABLE IF NOT EXISTS typing_progress (
   student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,

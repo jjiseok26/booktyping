@@ -563,7 +563,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 상세 필사 기록 이력
               </h3>
               <span className="text-xs text-stone-500">
-                총 <strong>{history.length}</strong>개 세션
+                작품별 1건 · 총 <strong>{history.length}</strong>편
               </span>
             </div>
 

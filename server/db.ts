@@ -311,6 +311,27 @@ async function migrateExtraColumns(): Promise<void> {
   } catch {
     // duplicates may exist until the next save upserts them
   }
+  try {
+    const sessionRows = await query(
+      'SELECT id, student_id, excerpt_id FROM typing_sessions ORDER BY created_at DESC, id ASC'
+    );
+    const seenSessions = new Set<string>();
+    for (const row of sessionRows) {
+      const key = `${row.student_id}\t${row.excerpt_id}`;
+      if (seenSessions.has(key)) {
+        await run('DELETE FROM typing_sessions WHERE id = ?', [String(row.id)]);
+      } else {
+        seenSessions.add(key);
+      }
+    }
+  } catch {
+    // ignore cleanup failures on empty tables
+  }
+  try {
+    await runRaw('CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_student_excerpt ON typing_sessions (student_id, excerpt_id)');
+  } catch {
+    // duplicates may exist until the next save upserts them
+  }
   const teacherAlters = [
     'ALTER TABLE teachers ADD COLUMN grade INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE teachers ADD COLUMN class_num INTEGER NOT NULL DEFAULT 0',
@@ -560,32 +581,51 @@ export async function saveSession(
   studentId: string,
   result: TypingSessionResult
 ): Promise<TypingSessionResult[]> {
-  await run(
-    `INSERT INTO typing_sessions (
-      id, student_id, excerpt_id, book_title, author, excerpt_title,
-      cpm, wpm, peak_cpm, accuracy, error_count, total_chars, total_strokes,
-      duration_seconds, mistyped_letters, effort_points, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      result.id,
-      studentId,
-      result.excerptId,
-      result.bookTitle,
-      result.author,
-      result.excerptTitle,
-      result.cpm,
-      result.wpm,
-      result.peakCpm,
-      result.accuracy,
-      result.errorCount,
-      result.totalChars,
-      result.totalStrokes,
-      result.durationSeconds,
-      JSON.stringify(result.mistypedLetters || {}),
-      result.earnedEffortPoints || 0,
-      result.timestamp || Date.now(),
-    ]
+  const existing = await query(
+    'SELECT id FROM typing_sessions WHERE student_id = ? AND excerpt_id = ? ORDER BY created_at DESC',
+    [studentId, result.excerptId]
   );
+  const keepId = existing[0] ? String(existing[0].id) : result.id;
+  const values = [
+    result.excerptId,
+    result.bookTitle,
+    result.author,
+    result.excerptTitle,
+    result.cpm,
+    result.wpm,
+    result.peakCpm,
+    result.accuracy,
+    result.errorCount,
+    result.totalChars,
+    result.totalStrokes,
+    result.durationSeconds,
+    JSON.stringify(result.mistypedLetters || {}),
+    result.earnedEffortPoints || 0,
+    result.timestamp || Date.now(),
+  ];
+  if (existing[0]) {
+    await run(
+      `UPDATE typing_sessions SET
+        excerpt_id = ?, book_title = ?, author = ?, excerpt_title = ?,
+        cpm = ?, wpm = ?, peak_cpm = ?, accuracy = ?, error_count = ?,
+        total_chars = ?, total_strokes = ?, duration_seconds = ?,
+        mistyped_letters = ?, effort_points = ?, created_at = ?
+       WHERE id = ? AND student_id = ?`,
+      [...values, keepId, studentId]
+    );
+    for (const extra of existing.slice(1)) {
+      await run('DELETE FROM typing_sessions WHERE id = ? AND student_id = ?', [String(extra.id), studentId]);
+    }
+  } else {
+    await run(
+      `INSERT INTO typing_sessions (
+        id, student_id, excerpt_id, book_title, author, excerpt_title,
+        cpm, wpm, peak_cpm, accuracy, error_count, total_chars, total_strokes,
+        duration_seconds, mistyped_letters, effort_points, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [keepId, studentId, ...values]
+    );
+  }
   return listSessions(studentId);
 }
 

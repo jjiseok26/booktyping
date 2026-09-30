@@ -41,6 +41,17 @@ function isDemoRecordId(id: unknown): boolean {
   return value.startsWith('sample-') || value.startsWith('report-sample-') || value.startsWith('peer-');
 }
 
+function oneSessionPerWork(history: TypingSessionResult[]): TypingSessionResult[] {
+  const seen = new Set<string>();
+  return [...history]
+    .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+    .filter((item) => {
+      if (!item.excerptId || seen.has(item.excerptId)) return false;
+      seen.add(item.excerptId);
+      return true;
+    });
+}
+
 export function getStoredHistory(): TypingSessionResult[] {
   if (typeof window === 'undefined') return [];
   try {
@@ -49,10 +60,11 @@ export function getStoredHistory(): TypingSessionResult[] {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     const cleaned = parsed.filter((item: { id?: string }) => item?.id && !isDemoRecordId(item.id));
-    if (cleaned.length !== parsed.length) {
-      localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(cleaned));
+    const unique = oneSessionPerWork(cleaned);
+    if (unique.length !== parsed.length) {
+      localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(unique));
     }
-    return cleaned;
+    return unique;
   } catch {
     return [];
   }
@@ -62,7 +74,9 @@ export function saveTypingResult(result: TypingSessionResult): TypingSessionResu
   if (typeof window === 'undefined') return [];
   try {
     const history = getStoredHistory();
-    const updated = [result, ...history];
+    const existing = history.find((item) => item.excerptId === result.excerptId);
+    const next = { ...result, id: existing?.id || result.id };
+    const updated = oneSessionPerWork([next, ...history.filter((item) => item.excerptId !== result.excerptId)]);
     localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(updated));
     return updated;
   } catch {
