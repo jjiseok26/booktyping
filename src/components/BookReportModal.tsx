@@ -27,7 +27,31 @@ import {
   Zap,
   Target,
   GraduationCap,
+  Lightbulb,
 } from 'lucide-react';
+
+const CONTENT_STARTERS = [
+  { label: '필사할 때', text: '한 글자씩 따라 쓰니, 눈으로만 읽을 때와 달리 ...이 더 선명하게 다가왔습니다.' },
+  { label: '인물 공감', text: '작품 속 인물이 ...한 장면에서, 나라면 비슷하게 느꼈을 것 같습니다.' },
+  { label: '내 경험', text: '요즘 학교생활에서 ...한 일이 떠올라, 이 작품과 연결해 보았습니다.' },
+  { label: '인상 장면', text: '특히 ...하는 장면이 오래 남았습니다. 그 이유는 ...입니다.' },
+];
+
+const QUOTE_REASON_STARTERS = [
+  { label: '인물의 마음', text: '이 문장에서 인물의 마음이 가장 잘 느껴졌기 때문입니다.' },
+  { label: '필사할 때 느낌', text: '필사하며 이 문장의 리듬과 뜻이 가슴에 남았기 때문입니다.' },
+];
+
+const TAKEAWAY_STARTERS = [
+  { label: '배운 점·다짐', text: '이 작품을 통해 ...을 배우며, 앞으로는 ...하겠습니다.' },
+  { label: '앞으로 떠올리기', text: '앞으로 나는 ...할 때 이 글을 떠올리며 한 걸음씩 나아가겠습니다.' },
+];
+
+function appendWritingHelp(prev: string, extra: string): string {
+  const trimmed = prev.trim();
+  if (!trimmed) return extra;
+  return `${trimmed}${trimmed.endsWith('.') || trimmed.endsWith('다') ? ' ' : '\n'}${extra}`;
+}
 
 interface BookReportModalProps {
   isOpen: boolean;
@@ -49,7 +73,7 @@ export const BookReportModal: React.FC<BookReportModalProps> = ({
   onSaveSuccess,
 }) => {
   const [activeTab, setActiveTab] = useState<'edit' | 'preview'>('edit');
-  const [showHelperTips, setShowHelperTips] = useState(false);
+  const [showHelperTips, setShowHelperTips] = useState(true);
   const [isSavedToast, setIsSavedToast] = useState(false);
 
   // Form states
@@ -385,6 +409,18 @@ export const BookReportModal: React.FC<BookReportModalProps> = ({
                 <label className="block text-xs font-bold text-stone-300 mb-1.5">
                   이 문장이 마음에 와닿은 까닭
                 </label>
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {QUOTE_REASON_STARTERS.map((starter) => (
+                    <button
+                      type="button"
+                      key={starter.label}
+                      onClick={() => setQuoteReason((prev) => appendWritingHelp(prev, starter.text))}
+                      className="text-[11px] px-2.5 py-1 rounded-lg bg-stone-800 hover:bg-amber-500/20 hover:text-amber-300 border border-stone-700 text-stone-300"
+                    >
+                      {starter.label} 넣기
+                    </button>
+                  ))}
+                </div>
                 <input
                   type="text"
                   value={quoteReason}
@@ -443,13 +479,39 @@ export const BookReportModal: React.FC<BookReportModalProps> = ({
                   </div>
                 </div>
 
-                {/* Helper Tips Box */}
                 {showHelperTips && (
-                  <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3.5 mb-2.5 text-xs text-amber-200 space-y-1.5 animate-fade-in font-sans-kr">
+                  <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3.5 mb-2.5 text-xs text-amber-200 space-y-2.5 animate-fade-in font-sans-kr">
                     <p className="font-bold flex items-center gap-1 text-amber-300">
-                      <Sparkles className="w-3.5 h-3.5" />
-                      선생님이 알려주는 좋은 독후감 작성 팁:
+                      <Lightbulb className="w-3.5 h-3.5" />
+                      막막할 때: 아래 문장을 누르면 본문에 들어가고, ...만 채우면 됩니다.
                     </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {CONTENT_STARTERS.map((starter) => (
+                        <button
+                          type="button"
+                          key={starter.label}
+                          onClick={() => setContent((prev) => appendWritingHelp(prev, starter.text))}
+                          className="px-2.5 py-1 rounded-lg bg-stone-900/70 hover:bg-amber-500/20 border border-amber-500/30 text-amber-100 text-[11px] font-medium"
+                        >
+                          {starter.label} 문장 넣기
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const quoteLine = memorableQuote.trim()
+                            ? `특히 「${memorableQuote.trim()}」이라는 문장이 마음에 남았습니다.`
+                            : '특히 마음에 남은 문장은 ...입니다.';
+                          const draft = `《${currentBookTitle}》(${currentAuthor})을 필사하며 가장 먼저 떠오른 생각은 ...입니다.\n\n${quoteLine} 이 문장이 와닿은 까닭은 ...입니다.\n\n작품 속 인물(또는 화자)이 ...한 장면에서 나라면 ...했을 것 같습니다. 요즘 나의 생활과 연결하면 ...입니다.\n\n이 글을 읽고 나는 ...을 다짐합니다.`;
+                          if (content.trim() && !window.confirm('지금 쓴 본문을 초안 틀로 바꿀까요?')) return;
+                          setContent(draft);
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-stone-950 text-[11px] font-bold"
+                      >
+                        <Sparkles className="w-3 h-3 inline mr-1 -mt-0.5" />
+                        서론·본론·결론 초안 넣기
+                      </button>
+                    </div>
                     <ul className="list-disc list-inside space-y-1 text-stone-300 text-[11px] leading-relaxed">
                       <li>
                         <strong>손끝으로 느낀 생각:</strong> 눈으로 읽을 때와 타자로 한 글자씩 칠 때 문장의 느낌이 어떻게 달랐나요?
@@ -478,6 +540,18 @@ export const BookReportModal: React.FC<BookReportModalProps> = ({
                 <label className="block text-xs font-bold text-stone-300 mb-1.5">
                   나에게 주는 교훈 및 앞으로의 다짐
                 </label>
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {TAKEAWAY_STARTERS.map((starter) => (
+                    <button
+                      type="button"
+                      key={starter.label}
+                      onClick={() => setPersonalTakeaway((prev) => appendWritingHelp(prev, starter.text))}
+                      className="text-[11px] px-2.5 py-1 rounded-lg bg-stone-800 hover:bg-amber-500/20 hover:text-amber-300 border border-stone-700 text-stone-300"
+                    >
+                      {starter.label} 넣기
+                    </button>
+                  ))}
+                </div>
                 <textarea
                   rows={2}
                   value={personalTakeaway}

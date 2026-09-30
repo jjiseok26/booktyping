@@ -164,6 +164,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
   const [workAuthor, setWorkAuthor] = useState('');
   const [workPassword, setWorkPassword] = useState('');
   const [workText, setWorkText] = useState('');
+  const [workFileName, setWorkFileName] = useState('');
   const [workMessage, setWorkMessage] = useState<string | null>(null);
   const [savingWork, setSavingWork] = useState(false);
   const [schools, setSchools] = useState<string[]>([]);
@@ -1014,6 +1015,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
                     setWorkAuthor('');
                     setWorkPassword('');
                     setWorkText('');
+                    setWorkFileName('');
                     setWorkMessage('학교 작품을 올렸습니다. 학생은 학교 작품 메뉴에서 암호를 입력해 필사합니다.');
                   })
                   .catch((err) => setWorkMessage(err instanceof Error ? err.message : '작품을 올리지 못했습니다.'))
@@ -1027,19 +1029,28 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
                 <input value={workAuthor} onChange={(e) => setWorkAuthor(e.target.value)} placeholder="글쓴이(선택)" className="rounded-lg border border-stone-200 px-3 py-2 text-sm" />
                 <input value={workPassword} onChange={(e) => setWorkPassword(e.target.value)} placeholder="작품 암호" className="rounded-lg border border-stone-200 px-3 py-2 text-sm" />
               </div>
-              <input
-                type="file"
-                accept=".txt,text/plain"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  const reader = new FileReader();
-                  reader.onload = () => setWorkText(String(reader.result || ''));
-                  reader.readAsText(file, 'utf-8');
-                  if (!workTitle) setWorkTitle(file.name.replace(/\.txt$/i, ''));
-                }}
-                className="text-xs"
-              />
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-700 hover:bg-sky-600 text-white text-sm font-semibold cursor-pointer">
+                  <Upload className="w-4 h-4" />
+                  파일 선택
+                  <input
+                    type="file"
+                    accept=".txt,text/plain"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = '';
+                      if (!file) return;
+                      setWorkFileName(file.name);
+                      const reader = new FileReader();
+                      reader.onload = () => setWorkText(String(reader.result || ''));
+                      reader.readAsText(file, 'utf-8');
+                      if (!workTitle) setWorkTitle(file.name.replace(/\.txt$/i, ''));
+                    }}
+                  />
+                </label>
+                <span className="text-xs text-stone-500">{workFileName || '텍스트(.txt) 파일을 고르거나 아래에 글을 붙여넣으세요.'}</span>
+              </div>
               <textarea
                 value={workText}
                 onChange={(e) => setWorkText(e.target.value)}
