@@ -179,6 +179,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
   const [workMessage, setWorkMessage] = useState<string | null>(null);
   const [savingWork, setSavingWork] = useState(false);
   const [editingWorkId, setEditingWorkId] = useState<string | null>(null);
+  const [studentSearched, setStudentSearched] = useState(false);
   const [schools, setSchools] = useState<string[]>([]);
   const [teacherSchool, setTeacherSchool] = useState('');
   const [teacherUsername, setTeacherUsername] = useState('');
@@ -276,6 +277,24 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
   }, [adminName, isAdmin, tab]);
 
   useEffect(() => {
+    if (!adminName) return undefined;
+    let cancelled = false;
+    const refreshPending = () => {
+      void apiAdminStudents()
+        .then((next) => {
+          if (!cancelled) setStudents(next);
+        })
+        .catch(() => undefined);
+    };
+    refreshPending();
+    const timer = window.setInterval(refreshPending, 4000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [adminName]);
+
+  useEffect(() => {
     if (!getAdminToken()) {
       setLoading(false);
       return;
@@ -345,6 +364,8 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
     setSessions([]);
     setReports([]);
     setTeachers([]);
+    setTeacherSearched(false);
+    setStudentSearched(false);
     onStaffLogout?.();
   };
 
@@ -533,11 +554,18 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
   const hasRosterFilter = Boolean(
     filterGrade.trim() || filterClassNum.trim() || filterStudentNum.trim() || query.trim()
   );
+  const hideStudentRosterUntilSearch = isAdmin || staffRole === 'school_admin';
+  const pendingStudents = useMemo(
+    () => scopedStudents.filter((student) => student.approved === false),
+    [scopedStudents]
+  );
 
   const filteredStudents = useMemo(
     () => scopedStudents.filter((student) => matchesRoster(student, rosterFilters, student.schoolName)),
     [scopedStudents, filterGrade, filterClassNum, filterStudentNum, query]
   );
+  const visibleStudents =
+    hideStudentRosterUntilSearch && !studentSearched ? [] : filteredStudents;
 
   const filteredSessions = useMemo(
     () =>
@@ -560,6 +588,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
     setFilterGrade('');
     setFilterClassNum('');
     setFilterStudentNum('');
+    setStudentSearched(false);
   };
 
   if (loading) {
@@ -819,6 +848,37 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
           ))}
         </div>
 
+        {pendingStudents.length > 0 && (
+          <section className="bg-amber-50 border border-amber-200 rounded-2xl p-4 space-y-3">
+            <p className="text-sm font-semibold text-amber-950">
+              회원가입 승인 요청 {pendingStudents.length}건
+            </p>
+            <div className="space-y-2">
+              {pendingStudents.map((student) => (
+                <div key={student.id} className="flex flex-wrap items-center justify-between gap-2 bg-white border border-amber-100 rounded-xl px-3 py-2">
+                  <p className="text-sm text-stone-800">
+                    {student.schoolName} · {student.grade}학년 {student.classNum}반 {student.studentNum}번 · {student.name}
+                  </p>
+                  {canApproveStudents &&
+                  (staffRole !== 'teacher' ||
+                    ((!staffGrade || student.grade === staffGrade) && (!staffClassNum || student.classNum === staffClassNum))) ? (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold"
+                      onClick={() => {
+                        void apiAdminApproveStudent(student.id).then(setStudents);
+                      }}
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      승인
+                    </button>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         {(tab === 'students' || tab === 'sessions' || tab === 'reports') && (
           <div className="bg-white border border-stone-200 rounded-2xl p-4 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -827,7 +887,9 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
               </p>
               <p className="text-xs text-stone-500">
                 {tab === 'students'
-                  ? `${filteredStudents.length}명`
+                  ? hideStudentRosterUntilSearch && !studentSearched
+                    ? '조회 전'
+                    : `${filteredStudents.length}명`
                   : tab === 'sessions'
                     ? `${filteredSessions.length}건`
                     : `${filteredReports.length}건`}
@@ -874,14 +936,26 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
                   className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm bg-white"
                 />
               </label>
-              <button
-                type="button"
-                disabled={!hasRosterFilter}
-                onClick={clearRosterFilters}
-                className="px-3 py-2 rounded-lg text-xs border border-stone-200 bg-stone-50 text-stone-600 disabled:opacity-40"
-              >
-                조건 지우기
-              </button>
+              <div className="flex flex-wrap gap-2">
+                {tab === 'students' && hideStudentRosterUntilSearch && (
+                  <button
+                    type="button"
+                    disabled={!hasRosterFilter}
+                    onClick={() => setStudentSearched(true)}
+                    className="px-3 py-2 rounded-lg text-xs font-semibold bg-sky-700 text-white disabled:opacity-40"
+                  >
+                    조회
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={!hasRosterFilter}
+                  onClick={clearRosterFilters}
+                  className="px-3 py-2 rounded-lg text-xs border border-stone-200 bg-stone-50 text-stone-600 disabled:opacity-40"
+                >
+                  조건 지우기
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -912,9 +986,15 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
 
         {tab === 'students' && (
           <AdminTable
-            empty={hasRosterFilter ? '조건에 맞는 학생이 없습니다. 학년·반·번호를 확인해 주세요.' : '등록된 학생이 없습니다.'}
+            empty={
+              hideStudentRosterUntilSearch && !studentSearched
+                ? '학년·반·번호 또는 이름 중 하나 이상을 넣고 조회하세요.'
+                : hasRosterFilter
+                  ? '조건에 맞는 학생이 없습니다. 학년·반·번호를 확인해 주세요.'
+                  : '등록된 학생이 없습니다.'
+            }
             headers={['학교', '학급', '이름', '상태', '필사', '독후감', '글자 수', '']}
-            rows={filteredStudents.map((student) => [
+            rows={visibleStudents.map((student) => [
               student.schoolName,
               `${student.grade}학년 ${student.classNum}반 ${student.studentNum}번`,
               student.name,
