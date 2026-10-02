@@ -178,6 +178,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
   const [workFileName, setWorkFileName] = useState('');
   const [workMessage, setWorkMessage] = useState<string | null>(null);
   const [savingWork, setSavingWork] = useState(false);
+  const [editingWorkId, setEditingWorkId] = useState<string | null>(null);
   const [schools, setSchools] = useState<string[]>([]);
   const [teacherSchool, setTeacherSchool] = useState('');
   const [teacherUsername, setTeacherUsername] = useState('');
@@ -1102,31 +1103,48 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
                 e.preventDefault();
                 setSavingWork(true);
                 setWorkMessage(null);
-                void apiCreateSchoolWork({
-                  title: workTitle,
-                  author: workAuthor,
-                  password: workPassword,
-                  text: workText,
-                })
+                const save = editingWorkId
+                  ? apiUpdateSchoolWork(editingWorkId, {
+                      title: workTitle,
+                      author: workAuthor,
+                      password: workPassword.trim() || undefined,
+                      text: workText,
+                    })
+                  : apiCreateSchoolWork({
+                      title: workTitle,
+                      author: workAuthor,
+                      password: workPassword,
+                      text: workText,
+                    });
+                void save
                   .then((next) => {
                     setSchoolWorks(next);
+                    setEditingWorkId(null);
                     setWorkTitle('');
                     setWorkAuthor('');
                     setWorkPassword('');
                     setWorkText('');
                     setWorkFileName('');
-                    setWorkMessage('학교 작품을 올렸습니다. 학생은 학교 작품 메뉴에서 암호를 입력해 필사합니다.');
+                    setWorkMessage(
+                      editingWorkId
+                        ? '학교 작품을 수정했습니다.'
+                        : '학교 작품을 올렸습니다. 학생은 학교 작품 메뉴에서 암호를 입력해 필사합니다.'
+                    );
                   })
-                  .catch((err) => setWorkMessage(err instanceof Error ? err.message : '작품을 올리지 못했습니다.'))
+                  .catch((err) => setWorkMessage(err instanceof Error ? err.message : '작품을 저장하지 못했습니다.'))
                   .finally(() => setSavingWork(false));
               }}
             >
-              <p className="text-sm font-semibold text-stone-800">학교 작품 올리기</p>
-              <p className="text-xs text-stone-500">텍스트 파일을 올리거나 글을 붙여넣으세요. 학생이 열 때 쓸 암호를 반드시 정하세요.</p>
+              <p className="text-sm font-semibold text-stone-800">{editingWorkId ? '학교 작품 수정' : '학교 작품 올리기'}</p>
+              <p className="text-xs text-stone-500">
+                {editingWorkId
+                  ? '제목·글쓴이·본문을 고친 뒤 저장하세요. 암호를 비우면 기존 암호가 유지됩니다.'
+                  : '텍스트 파일을 올리거나 글을 붙여넣으세요. 학생이 열 때 쓸 암호를 반드시 정하세요.'}
+              </p>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <input value={workTitle} onChange={(e) => setWorkTitle(e.target.value)} placeholder="작품 제목" className="rounded-lg border border-stone-200 px-3 py-2 text-sm" />
                 <input value={workAuthor} onChange={(e) => setWorkAuthor(e.target.value)} placeholder="글쓴이(선택)" className="rounded-lg border border-stone-200 px-3 py-2 text-sm" />
-                <input value={workPassword} onChange={(e) => setWorkPassword(e.target.value)} placeholder="작품 암호" className="rounded-lg border border-stone-200 px-3 py-2 text-sm" />
+                <input value={workPassword} onChange={(e) => setWorkPassword(e.target.value)} placeholder={editingWorkId ? '새 암호(선택)' : '작품 암호'} className="rounded-lg border border-stone-200 px-3 py-2 text-sm" />
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <label className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-700 hover:bg-sky-600 text-white text-sm font-semibold cursor-pointer">
@@ -1158,9 +1176,28 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
                 className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm"
               />
               {workMessage && <p className="text-xs text-stone-600">{workMessage}</p>}
-              <button type="submit" disabled={savingWork} className="px-4 py-2 rounded-xl bg-sky-700 text-white text-sm font-semibold disabled:opacity-60">
-                {savingWork ? '올리는 중...' : '작품 등록'}
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="submit" disabled={savingWork} className="px-4 py-2 rounded-xl bg-sky-700 text-white text-sm font-semibold disabled:opacity-60">
+                  {savingWork ? '저장 중...' : editingWorkId ? '수정 저장' : '작품 등록'}
+                </button>
+                {editingWorkId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingWorkId(null);
+                      setWorkTitle('');
+                      setWorkAuthor('');
+                      setWorkPassword('');
+                      setWorkText('');
+                      setWorkFileName('');
+                      setWorkMessage(null);
+                    }}
+                    className="px-3 py-2 rounded-xl border border-stone-200 text-sm text-stone-600"
+                  >
+                    수정 취소
+                  </button>
+                )}
+              </div>
             </form>
             <div className="bg-white border border-stone-200 rounded-2xl divide-y">
               {schoolWorks.length === 0 ? (
@@ -1173,6 +1210,27 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
                       <p className="text-xs text-stone-500">{work.author} · {work.teacherUsername}</p>
                     </div>
                     <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setWorkMessage(null);
+                          void apiDownloadSchoolWork(work.id)
+                            .then((data) => {
+                              setEditingWorkId(work.id);
+                              setWorkTitle(work.title);
+                              setWorkAuthor(work.author);
+                              setWorkPassword('');
+                              setWorkText(data.text || '');
+                              setWorkFileName('');
+                              setWorkMessage('아래에서 내용을 고친 뒤 저장하세요. 암호를 비우면 기존 암호가 유지됩니다.');
+                            })
+                            .catch((err) => setWorkMessage(err instanceof Error ? err.message : '작품을 불러오지 못했습니다.'));
+                        }}
+                        className="inline-flex items-center gap-1 text-sky-700 text-xs"
+                      >
+                        <Pencil className="w-3 h-3" />
+                        수정
+                      </button>
                       <button
                         type="button"
                         onClick={() => {

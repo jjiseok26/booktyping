@@ -72,6 +72,11 @@ export const TypingArea: React.FC<TypingAreaProps> = ({
 
   const inputRef = useRef<HTMLInputElement>(null);
   const skipProgressSave = useRef(true);
+  const composingRef = useRef(false);
+  const ignoreInputUntilRef = useRef(0);
+  const completeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const completeGenRef = useRef(0);
+  const completingRef = useRef(false);
   const targetSentence = activeSentences[sentenceIndex] || '';
 
   const applyProgress = useCallback(
@@ -216,6 +221,20 @@ export const TypingArea: React.FC<TypingAreaProps> = ({
 
   // Handle sentence completion or transition to next
   const handleCompleteSentence = useCallback(() => {
+    if (completingRef.current) return;
+    completingRef.current = true;
+    if (completeTimerRef.current) {
+      clearTimeout(completeTimerRef.current);
+      completeTimerRef.current = null;
+    }
+    completeGenRef.current += 1;
+    ignoreInputUntilRef.current = Date.now() + 180;
+    window.setTimeout(() => {
+      completingRef.current = false;
+    }, 180);
+    if (inputRef.current) inputRef.current.value = '';
+    setUserInput('');
+
     // Record current sentence stats
     let sentenceCorrectStrokes = 0;
     const sentenceTotalTargetStrokes = countTotalStrokes(targetSentence);
@@ -315,9 +334,33 @@ export const TypingArea: React.FC<TypingAreaProps> = ({
     userInput,
   ]);
 
+  const queueComplete = () => {
+    if (completeTimerRef.current) {
+      clearTimeout(completeTimerRef.current);
+    }
+    const gen = completeGenRef.current;
+    completeTimerRef.current = setTimeout(() => {
+      if (gen !== completeGenRef.current) return;
+      handleCompleteSentence();
+    }, 80);
+  };
+
+  const discardImeLeak = () => {
+    setUserInput('');
+    setErrorCount(0);
+    if (inputRef.current) inputRef.current.value = '';
+  };
+
   // Handle live input change & Korean typing analysis
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (Date.now() < ignoreInputUntilRef.current) {
+      discardImeLeak();
+      return;
+    }
+
     const value = normalizeTypingText(e.target.value, false);
+    const composing =
+      composingRef.current || Boolean((e.nativeEvent as InputEvent).isComposing);
 
     if (!startTime) {
       setStartTime(Date.now());
@@ -357,18 +400,18 @@ export const TypingArea: React.FC<TypingAreaProps> = ({
       setRealtimeAccuracy(100);
     }
 
-    // Check if sentence is completed perfectly
-    if (value === targetSentence) {
-      setTimeout(() => {
-        handleCompleteSentence();
-      }, 80);
+    if (!composing && value === targetSentence) {
+      queueComplete();
     }
   };
 
   // Keyboard navigation & Shortcuts (Enter to advance if done, Esc to restart sentence)
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
+      // Hangul IME uses Enter to commit a syllable; advancing here leaks that letter.
+      if (e.nativeEvent.isComposing || e.keyCode === 229) return;
       e.preventDefault();
+      if (Date.now() < ignoreInputUntilRef.current) return;
       if (userInput.length >= targetSentence.length * 0.7) {
         handleCompleteSentence();
       }
@@ -665,6 +708,19 @@ export const TypingArea: React.FC<TypingAreaProps> = ({
             value={userInput}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
+            onCompositionStart={() => {
+              composingRef.current = true;
+            }}
+            onCompositionEnd={(event) => {
+              composingRef.current = false;
+              if (Date.now() < ignoreInputUntilRef.current) {
+                discardImeLeak();
+                return;
+              }
+              const value = normalizeTypingText(event.currentTarget.value, false);
+              setUserInput(value);
+              if (value === targetSentence) queueComplete();
+            }}
             onCopy={(event) => event.preventDefault()}
             onCut={(event) => event.preventDefault()}
             onPaste={(event) => event.preventDefault()}

@@ -1751,9 +1751,13 @@ export async function listAllSchoolWorks(): Promise<SchoolWorkSummary[]> {
 }
 
 export async function downloadSchoolWorkText(
-  id: string
+  id: string,
+  schoolName?: string
 ): Promise<{ success: boolean; message: string; filename?: string; text?: string }> {
-  const rows = await query('SELECT * FROM school_works WHERE id = ? LIMIT 1', [id]);
+  const name = schoolName ? expandSchoolName(schoolName) : '';
+  const rows = name
+    ? await query('SELECT * FROM school_works WHERE id = ? AND school_name = ? LIMIT 1', [id, name])
+    : await query('SELECT * FROM school_works WHERE id = ? LIMIT 1', [id]);
   if (!rows[0]) return { success: false, message: '작품을 찾을 수 없습니다.' };
   let sentences: string[] = [];
   try {

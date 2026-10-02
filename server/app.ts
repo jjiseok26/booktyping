@@ -811,9 +811,10 @@ app.get(
   asyncRoute(async (req, res) => {
     const downloadId = String(req.query.download || '');
     if (downloadId) {
-      const staff = await requireAdminOnly(req, res);
+      const staff = await requireStaff(req, res);
       if (!staff) return;
-      const result = await downloadSchoolWorkText(downloadId);
+      const schoolFilter = staff.role === 'admin' ? undefined : staff.schoolName;
+      const result = await downloadSchoolWorkText(downloadId, schoolFilter);
       res.status(result.success ? 200 : 400).json(result);
       return;
     }

@@ -22,9 +22,6 @@ export const BookReportPrintSheet: React.FC<BookReportPrintSheetProps> = ({ repo
         <h1 className="text-2xl font-bold tracking-tight text-stone-950 mb-1">
           문학 명작 필사 및 독서활동 보고서
         </h1>
-        <p className="text-xs text-stone-500 font-sans-kr">
-          저작권 만료 고전 문학 작품을 직접 필사하고 작성한 독후감입니다.
-        </p>
       </div>
 
       <table className="w-full border-collapse border border-stone-800 text-xs font-sans-kr mb-4">

@@ -31,6 +31,7 @@ import {
   deleteStudentAccount,
   getStudentById,
   createSchoolWork,
+  updateSchoolWork,
   unlockSchoolWork,
   listTeachers,
   downloadSchoolWorkText,
@@ -622,6 +623,12 @@ async function main() {
   const downloaded = await downloadSchoolWorkText(uploaded.works[0].id);
   if (!downloaded.success || downloaded.text !== '첫 문장입니다.\n두 번째 문장입니다.') {
     throw new Error(downloaded.message || 'school work download failed');
+  }
+  const edited = await updateSchoolWork(uploaded.works[0].id, '가온중학교', { text: '고친 문장입니다.' });
+  if (!edited.success) throw new Error(edited.message || 'school work edit failed');
+  const reopened = await unlockSchoolWork(uploaded.works[0].id, 'open-sesame');
+  if (!reopened.success || reopened.book?.sentences.join('\n') !== '고친 문장입니다.') {
+    throw new Error('school work text was not updated');
   }
   const noTeacherDump = await listTeachers();
   if (noTeacherDump.length !== 0) throw new Error('teacher list should stay empty until search filters are set');
