@@ -826,6 +826,7 @@ export const TypingArea: React.FC<TypingAreaProps> = ({
               <button
                 type="button"
                 onClick={() => {
+                  if (!window.confirm('한 줄 감상을 건너뛸까요? 지금 읽은 느낌을 남기지 않습니다.')) return;
                   setParagraphPrompt(null);
                   setParagraphDraft('');
                   inputRef.current?.focus();
