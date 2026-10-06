@@ -1409,11 +1409,12 @@ export async function listTeachers(
   const username = String(filters?.username || '').trim();
   const grade = Number(filters?.grade || 0);
   const classNum = Number(filters?.classNum || 0);
-  if (!schoolFilter && !username && !(grade > 0) && !(classNum > 0)) return [];
+  const scoped = schoolName ? expandSchoolName(schoolName) : '';
+  const hasLookup = Boolean(schoolFilter || username || grade > 0 || classNum > 0);
+  if (!scoped && !hasLookup && filters === undefined) return [];
 
   const clauses: string[] = [];
   const params: unknown[] = [];
-  const scoped = schoolName ? expandSchoolName(schoolName) : '';
   if (scoped) {
     clauses.push('school_name = ?');
     params.push(scoped);

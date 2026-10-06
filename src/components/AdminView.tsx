@@ -213,11 +213,6 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
   const canManageWorks = staffRole === 'teacher' || staffRole === 'school_admin';
   const canEditStudents = staffRole === 'admin' || staffRole === 'school_admin';
   const canApproveStudents = staffRole === 'admin' || staffRole === 'school_admin' || staffRole === 'teacher';
-  const hasTeacherLookup =
-    Boolean(teacherLookupSchool.trim()) ||
-    Boolean(teacherLookupUsername.trim()) ||
-    Boolean(parseFilterNum(teacherLookupGrade)) ||
-    Boolean(parseFilterNum(teacherLookupClassNum));
   const consoleTitle =
     staffRole === 'admin' ? '관리자 콘솔' : staffRole === 'school_admin' ? '학교 최고관리자 콘솔' : '담임교사 콘솔';
 
@@ -239,11 +234,6 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
   };
 
   const searchTeachers = async () => {
-    if (!hasTeacherLookup) {
-      setTeachers([]);
-      setTeacherSearched(true);
-      return;
-    }
     setLookingUpTeachers(true);
     try {
       setTeachers(
@@ -1356,7 +1346,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
                     onChange={setTeacherLookupSchool}
                     schools={schools}
                     variant="light"
-                    placeholder="예: 금구중"
+                    placeholder="비워도 조회됩니다"
                     inputClassName="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm bg-white"
                   />
                 </label>
@@ -1394,7 +1384,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
               </label>
               <button
                 type="submit"
-                disabled={!hasTeacherLookup || lookingUpTeachers}
+                disabled={lookingUpTeachers}
                 className="px-3 py-2 rounded-lg bg-sky-700 text-white text-sm font-semibold disabled:opacity-40 inline-flex items-center justify-center gap-1.5"
               >
                 <Search className="w-4 h-4" />
@@ -1539,7 +1529,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
             )}
 
             <AdminTable
-              empty={teacherSearched ? '조건에 맞는 담임교사가 없습니다.' : '학교명·아이디·학년·반 중 하나 이상을 넣고 조회하세요.'}
+              empty={teacherSearched ? '조건에 맞는 담임교사가 없습니다.' : '조회하면 가입 신청을 포함한 담임교사 목록이 나옵니다. 학교명은 비워도 됩니다.'}
               headers={['학교', '아이디', '역할', '학급', '상태', '최근 로그인', '']}
               rows={teachers.map((teacher) => [
                 teacher.schoolName,

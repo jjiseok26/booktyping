@@ -632,6 +632,14 @@ async function main() {
   }
   const noTeacherDump = await listTeachers();
   if (noTeacherDump.length !== 0) throw new Error('teacher list should stay empty until search filters are set');
+  const byUsernameOnly = await listTeachers(undefined, { username: 'geumgu-homeroom' });
+  if (!byUsernameOnly.some((row) => row.username === 'geumgu-homeroom')) {
+    throw new Error('teacher lookup should work without school name');
+  }
+  const bySchoolScope = await listTeachers('금구중학교');
+  if (!bySchoolScope.some((row) => row.username === 'geumgu-homeroom')) {
+    throw new Error('school-scoped teacher list should not require extra filters');
+  }
 
   resetSchemaCache();
   try {
