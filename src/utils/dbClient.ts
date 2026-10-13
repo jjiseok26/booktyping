@@ -554,8 +554,9 @@ export async function apiDownloadSchoolWork(id: string): Promise<{ filename?: st
   );
 }
 
-export async function apiUnlockSchoolWork(id: string, password: string) {
-  return request<{ book?: import('../types').BookExcerpt }>('/api/school-works', {
+export async function apiUnlockSchoolWork(id: string, password: string, asStaff = false) {
+  const send = asStaff ? adminRequest : request;
+  return send<{ book?: import('../types').BookExcerpt }>('/api/school-works', {
     method: 'POST',
     body: JSON.stringify({ action: 'unlock', id, password }),
   });

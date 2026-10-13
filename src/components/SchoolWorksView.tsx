@@ -6,6 +6,7 @@ import { apiListSchoolWorks, apiUnlockSchoolWork, SchoolWorkSummary } from '../u
 interface SchoolWorksViewProps {
   schoolName: string;
   loggedIn: boolean;
+  asStaff?: boolean;
   onOpenLogin: () => void;
   onSelectBook: (book: BookExcerpt) => void;
 }
@@ -13,6 +14,7 @@ interface SchoolWorksViewProps {
 export const SchoolWorksView: React.FC<SchoolWorksViewProps> = ({
   schoolName,
   loggedIn,
+  asStaff = false,
   onOpenLogin,
   onSelectBook,
 }) => {
@@ -30,15 +32,13 @@ export const SchoolWorksView: React.FC<SchoolWorksViewProps> = ({
     void apiListSchoolWorks(schoolName).then(setWorks).catch(() => setWorks([]));
   }, [schoolName]);
 
-  const unlock = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!selected) return;
+  const openWork = async (work: SchoolWorkSummary, workPassword: string) => {
     setLoading(true);
     setError(null);
     try {
-      const data = await apiUnlockSchoolWork(selected.id, password);
+      const data = await apiUnlockSchoolWork(work.id, workPassword, asStaff);
       if (!data.book) {
-        setError(data.message || '암호가 올바르지 않습니다.');
+        setError(data.message || (asStaff ? '작품을 열지 못했습니다.' : '암호가 올바르지 않습니다.'));
         return;
       }
       setSelected(null);
@@ -51,16 +51,24 @@ export const SchoolWorksView: React.FC<SchoolWorksViewProps> = ({
     }
   };
 
+  const unlock = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!selected) return;
+    await openWork(selected, password);
+  };
+
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
       <div className="mb-6">
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-sky-100 border border-sky-200 text-sky-900 text-xs font-medium mb-2">
           <Lock className="w-3.5 h-3.5" />
-          학교 작품 · 암호 입력 후 필사
+          {asStaff ? '학교 작품 · 선생님 필사' : '학교 작품 · 암호 입력 후 필사'}
         </div>
         <h1 className="font-batang text-3xl font-bold text-stone-900">우리 학교 작품</h1>
         <p className="mt-2 text-sm text-stone-600">
-          선생님이 올린 글입니다. 공개 서재와 따로 있으며, 선생님이 알려 준 암호를 입력해야 필사할 수 있습니다.
+          {asStaff
+            ? '선생님이 올린 글입니다. 로그인한 선생님은 암호 없이 바로 필사해 볼 수 있습니다.'
+            : '선생님이 올린 글입니다. 공개 서재와 따로 있으며, 선생님이 알려 준 암호를 입력해야 필사할 수 있습니다.'}
         </p>
       </div>
 
@@ -87,9 +95,13 @@ export const SchoolWorksView: React.FC<SchoolWorksViewProps> = ({
               key={work.id}
               type="button"
               onClick={() => {
+                setError(null);
+                if (asStaff) {
+                  void openWork(work, '');
+                  return;
+                }
                 setSelected(work);
                 setPassword('');
-                setError(null);
               }}
               className="text-left bg-white border border-stone-200 hover:border-sky-300 rounded-2xl p-4 flex items-center justify-between gap-3"
             >
@@ -101,12 +113,14 @@ export const SchoolWorksView: React.FC<SchoolWorksViewProps> = ({
               </div>
               <span className="inline-flex items-center gap-1 text-xs text-sky-800 bg-sky-50 border border-sky-200 px-2 py-1 rounded-lg">
                 <KeyRound className="w-3.5 h-3.5" />
-                암호 필요
+                {asStaff ? '바로 필사' : '암호 필요'}
               </span>
             </button>
           ))}
         </div>
       )}
+
+      {error && !selected && <p className="mt-3 text-sm text-rose-600">{error}</p>}
 
       {selected && (
         <div className="fixed inset-0 z-50 bg-stone-950/70 flex items-center justify-center p-4">

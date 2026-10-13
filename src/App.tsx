@@ -275,7 +275,7 @@ export default function App() {
         <div className="fixed inset-0 z-[60] overflow-y-auto overflow-x-hidden">
         <AdminView
           loginMode={staffLoginMode}
-          onBrowseStudentView={(staff) => {
+          onBrowseStudentView={(staff, destination = 'leaderboard') => {
             const profile: StudentProfile = {
               schoolYear: studentProfile.schoolYear || '2026학년도',
               schoolName: staff.schoolName,
@@ -287,7 +287,7 @@ export default function App() {
             setStudentProfile(profile);
             setStaffBrowse(staff);
             window.location.hash = '';
-            setCurrentView('leaderboard');
+            setCurrentView(destination);
             void Promise.all([apiAdminSessions(), apiAdminReports()])
               .then(([sessions, classReports]) => {
                 setHistory(sessions);
@@ -372,6 +372,7 @@ export default function App() {
           <SchoolWorksView
             schoolName={studentProfile.schoolName}
             loggedIn={Boolean(currentAccount) || Boolean(staffBrowse)}
+            asStaff={staffBrowse?.role === 'teacher' || staffBrowse?.role === 'school_admin'}
             onOpenLogin={() => handleOpenAuthModal('login')}
             onSelectBook={handleSelectBook}
           />

@@ -868,7 +868,16 @@ app.post(
   '/api/school-works',
   asyncRoute(async (req, res) => {
     if (req.body?.action === 'unlock') {
-      const result = await unlockSchoolWork(String(req.body.id || ''), String(req.body.password || ''));
+      const tokenStaff = await getAdminByToken(readToken(req));
+      const staffSchool =
+        tokenStaff && (tokenStaff.role === 'teacher' || tokenStaff.role === 'school_admin')
+          ? tokenStaff.schoolName
+          : '';
+      const result = await unlockSchoolWork(
+        String(req.body.id || ''),
+        String(req.body.password || ''),
+        staffSchool
+      );
       res.status(result.success ? 200 : 400).json(result);
       return;
     }

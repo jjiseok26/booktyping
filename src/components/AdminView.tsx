@@ -14,6 +14,7 @@ import {
   Upload,
   Check,
   BookOpen,
+  KeyRound,
   Eye,
   Printer,
   Download,
@@ -80,13 +81,16 @@ const SCHOOL_YEAR_OPTIONS = ['2026학년도', '2027학년도', '2028학년도', 
 interface AdminViewProps {
   onBack: () => void;
   loginMode?: LoginMode;
-  onBrowseStudentView?: (staff: {
-    username: string;
-    role: StaffRole;
-    schoolName: string;
-    grade: number;
-    classNum: number;
-  }) => void;
+  onBrowseStudentView?: (
+    staff: {
+      username: string;
+      role: StaffRole;
+      schoolName: string;
+      grade: number;
+      classNum: number;
+    },
+    destination?: 'leaderboard' | 'school-books'
+  ) => void;
   onStaffLogout?: () => void;
 }
 
@@ -803,10 +807,25 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
     );
   }
 
+  const openSchoolWorks = () => {
+    if (!(staffRole === 'teacher' || staffRole === 'school_admin') || !onBrowseStudentView || !adminName) return;
+    onBrowseStudentView(
+      {
+        username: adminName,
+        role: staffRole,
+        schoolName: staffSchool,
+        grade: staffGrade,
+        classNum: staffClassNum,
+      },
+      'school-books'
+    );
+  };
+
   return (
     <StaffShell
       title={consoleTitle}
       subtitle={`${adminName} 계정${staffSchool ? ` · ${staffSchool}` : ''}`}
+      onOpenSchoolWorks={canManageWorks ? openSchoolWorks : undefined}
       onBack={() => {
       if ((staffRole === 'teacher' || staffRole === 'school_admin') && onBrowseStudentView && adminName) {
         onBrowseStudentView({
@@ -841,6 +860,15 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
           >
             학생 화면
           </button>
+          {canManageWorks && (
+            <button
+              type="button"
+              onClick={openSchoolWorks}
+              className="md:hidden px-3 py-1.5 rounded-lg text-xs bg-stone-800 border border-stone-700"
+            >
+              학교 작품
+            </button>
+          )}
           <button
             type="button"
             onClick={() => void handleLogout()}
@@ -1935,6 +1963,7 @@ function StaffShell({
   title,
   subtitle,
   onBack,
+  onOpenSchoolWorks,
   dark,
   bar,
   children,
@@ -1942,6 +1971,7 @@ function StaffShell({
   title: string;
   subtitle?: string;
   onBack: () => void;
+  onOpenSchoolWorks?: () => void;
   dark?: boolean;
   bar?: React.ReactNode;
   children: React.ReactNode;
@@ -1981,6 +2011,16 @@ function StaffShell({
             <ArrowLeft className="w-4 h-4" />
             학생 화면
           </button>
+          {onOpenSchoolWorks && (
+            <button
+              type="button"
+              onClick={onOpenSchoolWorks}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium text-stone-300 hover:text-stone-100 hover:bg-stone-800"
+            >
+              <KeyRound className="w-4 h-4" />
+              학교 작품
+            </button>
+          )}
           <div className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold bg-amber-500 text-stone-950">
             <Lock className="w-4 h-4" />
             {title}

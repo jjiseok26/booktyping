@@ -620,6 +620,12 @@ async function main() {
   if (!uploaded.success || !uploaded.works?.[0]) throw new Error(uploaded.message);
   const wrongUnlock = await unlockSchoolWork(uploaded.works[0].id, 'nope');
   if (wrongUnlock.success) throw new Error('wrong work password should fail');
+  const otherSchool = await unlockSchoolWork(uploaded.works[0].id, '', '다른중학교');
+  if (otherSchool.success) throw new Error('another school should not skip the work password');
+  const teacherPreview = await unlockSchoolWork(uploaded.works[0].id, '', '가온중학교');
+  if (!teacherPreview.success || teacherPreview.book?.sentences.length !== 2) {
+    throw new Error('teacher should open a school work without the password');
+  }
   const opened = await unlockSchoolWork(uploaded.works[0].id, 'open-sesame');
   if (!opened.success || opened.book?.sentences.length !== 2) throw new Error('school work did not unlock');
   const downloaded = await downloadSchoolWorkText(uploaded.works[0].id);

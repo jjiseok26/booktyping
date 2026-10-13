@@ -1926,11 +1926,14 @@ export async function deleteSchoolWork(
 
 export async function unlockSchoolWork(
   id: string,
-  password: string
+  password: string,
+  staffSchoolName = ''
 ): Promise<{ success: boolean; message: string; book?: import('../src/types').BookExcerpt }> {
   const rows = await query('SELECT * FROM school_works WHERE id = ? LIMIT 1', [id]);
   if (!rows[0]) return { success: false, message: '작품을 찾을 수 없습니다.' };
-  if (!verifyPassword(String(password || ''), String(rows[0].password_hash))) {
+  const staffSchool = expandSchoolName(staffSchoolName);
+  const sameSchool = Boolean(staffSchool) && staffSchool === expandSchoolName(String(rows[0].school_name));
+  if (!sameSchool && !verifyPassword(String(password || ''), String(rows[0].password_hash))) {
     return { success: false, message: '작품 암호가 올바르지 않습니다.' };
   }
   let sentences: string[] = [];
