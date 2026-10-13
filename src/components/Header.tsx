@@ -128,7 +128,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-          {NAV_ITEMS.map(({ id, label, Icon }) => (
+          {NAV_ITEMS.filter((item) => item.id !== 'school-books' || currentAccount || teacherConsole).map(({ id, label, Icon }) => (
             <button
               key={id}
               id={`nav-btn-${id}`}

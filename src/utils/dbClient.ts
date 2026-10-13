@@ -308,6 +308,23 @@ export async function apiAdminStudents() {
   return data.students || [];
 }
 
+export async function apiCreateStudentIds(payload: {
+  schoolYear: string;
+  schoolName?: string;
+  students: Array<{ grade: number; classNum: number; studentNum: number; name: string }>;
+}) {
+  return adminRequest<{
+    success: boolean;
+    message: string;
+    created: number;
+    failed: string[];
+    accounts: StudentAccount[];
+  }>('/api/admin-students', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function apiAdminDeleteStudent(id: string) {
   const data = await adminRequest<{
     students: Array<StudentAccount & { sessionCount: number; reportCount: number; totalChars: number }>;

@@ -546,6 +546,65 @@ export async function registerStudent(data: {
   };
 }
 
+export async function createApprovedStudents(
+  rows: Array<{
+    schoolYear: string;
+    schoolName: string;
+    grade: number;
+    classNum: number;
+    studentNum: number;
+    name: string;
+  }>
+): Promise<{
+  success: boolean;
+  message: string;
+  created: number;
+  failed: string[];
+  accounts: StudentAccount[];
+}> {
+  const failed: string[] = [];
+  const accounts: StudentAccount[] = [];
+  for (const row of rows) {
+    const schoolName = expandSchoolName(String(row.schoolName || ''));
+    const schoolYear = String(row.schoolYear || '').trim();
+    const name = String(row.name || '').trim();
+    const grade = Number(row.grade);
+    const classNum = Number(row.classNum);
+    const studentNum = Number(row.studentNum);
+    const label = `${grade || '?'}학년 ${classNum || '?'}반 ${studentNum || '?'}번 ${name || ''}`.trim();
+    if (!schoolName || !schoolYear || !name || grade < 1 || classNum < 1 || studentNum < 1) {
+      failed.push(`${label}: 학교, 학년도, 학년, 반, 번호, 성명을 확인해 주세요.`);
+      continue;
+    }
+    const id = buildStudentAccountId(schoolYear, schoolName, grade, classNum, studentNum);
+    const now = Date.now();
+    try {
+      await run(
+        `INSERT INTO students (id, school_year, school_name, grade, class_num, student_num, name, created_at, last_login_at, approved)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+        [id, schoolYear, schoolName, grade, classNum, studentNum, name, now, now]
+      );
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        failed.push(`${label}: 이미 있는 번호입니다.`);
+        continue;
+      }
+      throw error;
+    }
+    const account = await getStudentById(id);
+    if (account) accounts.push(account);
+  }
+  return {
+    success: accounts.length > 0,
+    message: failed.length
+      ? `${accounts.length}명 생성, ${failed.length}건 실패`
+      : `${accounts.length}명의 학생 아이디를 만들었습니다.`,
+    created: accounts.length,
+    failed,
+    accounts,
+  };
+}
+
 export async function loginStudent(data: {
   schoolYear: string;
   schoolName: string;
@@ -1139,6 +1198,7 @@ export async function loginTeacher(
           : result.message,
     };
   }
+  if (result.role === 'admin') return result;
   if ((result.role !== 'teacher' && result.role !== 'school_admin') || !result.admin?.schoolName) {
     return { success: false, message: '선생님 계정으로 로그인해 주세요. 관리자는 관리자 로그인을 이용하세요.' };
   }

@@ -35,6 +35,7 @@ import {
   apiAdminReports,
   apiAdminSessions,
   apiAdminStudents,
+  apiCreateStudentIds,
   apiAdminTeachers,
   apiAdminApproveStudent,
   apiAdminUpdateStudent,
@@ -54,6 +55,7 @@ import {
 } from '../utils/dbClient';
 import { expandSchoolName } from '../utils/schoolName';
 import { parseTeacherSpreadsheet, TEACHER_CSV_TEMPLATE } from '../utils/teacherWorkbook';
+import { downloadStudentWorkbook, parseStudentSpreadsheet } from '../utils/studentWorkbook';
 import { SchoolNameField } from './SchoolNameField';
 import { BookReportPrintSheet } from './BookReportPrintSheet';
 
@@ -189,6 +191,10 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
   const [teacherIsSchoolAdmin, setTeacherIsSchoolAdmin] = useState(false);
   const [teacherMessage, setTeacherMessage] = useState<string | null>(null);
   const [uploadingTeachers, setUploadingTeachers] = useState(false);
+  const [uploadingStudents, setUploadingStudents] = useState(false);
+  const [studentExcelYear, setStudentExcelYear] = useState('2026학년도');
+  const [studentExcelSchool, setStudentExcelSchool] = useState('');
+  const [studentExcelMessage, setStudentExcelMessage] = useState<string | null>(null);
   const [editingStudent, setEditingStudent] = useState<AdminStudent | null>(null);
   const [editGrade, setEditGrade] = useState('1');
   const [editClassNum, setEditClassNum] = useState('1');
@@ -321,11 +327,6 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
         return;
       }
       const nextRole = asStaffRole(result.admin.role || result.role);
-      if (loginMode === 'teacher' && nextRole === 'admin') {
-        setAdminToken(null);
-        setError('선생님 계정으로 로그인해 주세요.');
-        return;
-      }
       setAdminName(result.admin.username);
       setStaffRole(nextRole);
       setStaffSchool(result.admin.schoolName || '');
@@ -483,6 +484,53 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
     URL.revokeObjectURL(url);
   };
 
+  const downloadStudentTemplate = () => {
+    const grade = staffRole === 'teacher' && staffGrade ? String(staffGrade) : '1';
+    const classNum = staffRole === 'teacher' && staffClassNum ? String(staffClassNum) : '1';
+    void downloadStudentWorkbook('학생아이디_양식.xlsx', [
+      ['학년', '반', '번호', '성명'],
+      [grade, classNum, '1', '홍길동'],
+    ]);
+  };
+
+  const uploadStudentFile = async (file: File) => {
+    setUploadingStudents(true);
+    setStudentExcelMessage(null);
+    try {
+      const drafts = await parseStudentSpreadsheet(file);
+      if (!drafts.length) {
+        setStudentExcelMessage('엑셀에서 학생 행을 찾지 못했습니다. 학년, 반, 번호, 성명 열을 확인해 주세요.');
+        return;
+      }
+      const result = await apiCreateStudentIds({
+        schoolYear: studentExcelYear,
+        schoolName: isAdmin ? studentExcelSchool : staffSchool,
+        students: drafts,
+      });
+      const failed = result.failed?.length ? `\n${result.failed.join('\n')}` : '';
+      setStudentExcelMessage(`${result.message || '학생 아이디를 만들었습니다.'}${failed}`);
+      if (result.accounts?.length) {
+        await downloadStudentWorkbook(`${studentExcelYear}_학생아이디.xlsx`, [
+          ['학교', '학년도', '학년', '반', '번호', '성명', '학생아이디'],
+          ...result.accounts.map((account) => [
+            account.schoolName,
+            account.schoolYear,
+            String(account.grade),
+            String(account.classNum),
+            String(account.studentNum),
+            account.name,
+            account.id,
+          ]),
+        ]);
+        setStudents(await apiAdminStudents());
+      }
+    } catch (err) {
+      setStudentExcelMessage(err instanceof Error ? err.message : '엑셀 파일을 읽지 못했습니다.');
+    } finally {
+      setUploadingStudents(false);
+    }
+  };
+
   const downloadSchoolWorkFile = async (id: string) => {
     const data = await apiDownloadSchoolWork(id);
     if (!data.text) {
@@ -619,7 +667,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
                 {loginMode === 'teacher'
                   ? teacherFormMode === 'register'
                     ? '담임교사로 가입하면 관리자 승인 후 로그인할 수 있습니다.'
-                    : '담임교사·학교 최고관리자 아이디로 로그인하면 우리 학교 학생의 필사·독후 활동만 확인할 수 있습니다.'
+                    : '담임교사·학교 최고관리자 또는 관리자 아이디로 로그인할 수 있습니다.'
                   : '관리자는 학교별 담임·최고관리자 아이디를 만들고 전체 활동을 확인합니다.'}
               </p>
             </div>
@@ -975,6 +1023,61 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
         )}
 
         {tab === 'students' && (
+          <section className="bg-white border border-stone-200 rounded-2xl p-4 flex flex-wrap items-end gap-3">
+            <div>
+              <p className="text-sm font-semibold text-stone-800">학생 아이디 엑셀 생성</p>
+              <p className="text-xs text-stone-500 mt-1">양식에 학년·반·번호·성명을 채운 뒤 올리면 아이디가 만들어지고 엑셀로 받아집니다. 성명이 로그인 암호입니다.</p>
+            </div>
+            <label className="text-xs text-stone-500">
+              학년도
+              <select
+                value={studentExcelYear}
+                onChange={(e) => setStudentExcelYear(e.target.value)}
+                className="mt-1 block rounded-lg border border-stone-200 px-3 py-2 text-sm bg-white"
+              >
+                {SCHOOL_YEAR_OPTIONS.map((year) => (
+                  <option key={year} value={year}>{year}</option>
+                ))}
+              </select>
+            </label>
+            {isAdmin && (
+              <label className="text-xs text-stone-500">
+                학교명
+                <input
+                  value={studentExcelSchool}
+                  onChange={(e) => setStudentExcelSchool(e.target.value)}
+                  placeholder="학교명"
+                  className="mt-1 block rounded-lg border border-stone-200 px-3 py-2 text-sm"
+                />
+              </label>
+            )}
+            <button
+              type="button"
+              onClick={downloadStudentTemplate}
+              className="px-3 py-2 rounded-lg text-xs border border-stone-200 bg-stone-50 hover:bg-stone-100"
+            >
+              양식 받기
+            </button>
+            <label className="px-3 py-2 rounded-lg text-xs border border-amber-300 bg-amber-50 text-amber-800 cursor-pointer flex items-center gap-1.5">
+              <Upload className="w-3.5 h-3.5" />
+              {uploadingStudents ? '만드는 중...' : '엑셀로 아이디 만들기'}
+              <input
+                type="file"
+                accept=".xlsx,.xls,.csv,text/csv"
+                className="hidden"
+                disabled={uploadingStudents}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = '';
+                  if (file) void uploadStudentFile(file);
+                }}
+              />
+            </label>
+            {studentExcelMessage && <p className="w-full text-xs text-stone-600 whitespace-pre-wrap">{studentExcelMessage}</p>}
+          </section>
+        )}
+
+        {tab === 'students' && (
           <AdminTable
             empty={
               hideStudentRosterUntilSearch && !studentSearched
@@ -1280,6 +1383,16 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
                       <p className="text-xs text-stone-500">{work.author} · {work.teacherUsername}</p>
                     </div>
                     <div className="flex items-center gap-3">
+                      {staffRole === 'school_admin' && (
+                        <button
+                          type="button"
+                          onClick={() => void downloadSchoolWorkFile(work.id)}
+                          className="inline-flex items-center gap-1 text-sky-700 text-xs font-semibold"
+                        >
+                          <Download className="w-3 h-3" />
+                          텍스트 저장
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => {

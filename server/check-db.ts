@@ -339,8 +339,10 @@ async function main() {
   });
   if (!expandedLogin.success) throw new Error(expandedLogin.message);
 
-  const teacherDenied = await loginTeacher(DEFAULT_ADMIN_USERNAME, DEFAULT_ADMIN_PASSWORD);
-  if (teacherDenied.success) throw new Error('admin credentials should not work on teacher login');
+  const teacherAsAdmin = await loginTeacher(DEFAULT_ADMIN_USERNAME, DEFAULT_ADMIN_PASSWORD);
+  if (!teacherAsAdmin.success || teacherAsAdmin.role !== 'admin') {
+    throw new Error('admin credentials should work on the teacher login screen');
+  }
 
   const teacherMissingClass = await createTeacher({
     schoolName: '금구중',

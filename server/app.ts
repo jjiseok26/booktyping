@@ -33,6 +33,7 @@ import {
   updateStudentAccount,
   updateTeacher,
   approveStudent,
+  createApprovedStudents,
   listSchoolWorks,
   listAllSchoolWorks,
   downloadSchoolWorkText,
@@ -42,6 +43,7 @@ import {
   unlockSchoolWork,
   type AdminAccount,
 } from './db';
+import { expandSchoolName } from '../src/utils/schoolName';
 import { readStudentToken, signStudentToken } from './adminAuth.js';
 
 function isParsedObject(body: unknown): body is Record<string, unknown> {
@@ -554,6 +556,40 @@ app.get(
     const staff = await requireStaff(req, res);
     if (!staff) return;
     res.json({ success: true, students: await listAllStudents(staffScope(staff)) });
+  })
+);
+
+app.post(
+  '/api/admin/students',
+  asyncRoute(async (req, res) => {
+    const staff = await requireStaff(req, res);
+    if (!staff) return;
+    const rows = Array.isArray(req.body?.students) ? req.body.students : [];
+    if (!rows.length) {
+      res.status(400).json({ success: false, message: '엑셀에서 학생 행을 찾지 못했습니다.' });
+      return;
+    }
+    const schoolYear = String(req.body?.schoolYear || '2026학년도').trim();
+    const schoolName =
+      staff.role === 'admin' ? expandSchoolName(String(req.body?.schoolName || '')) : staff.schoolName;
+    if (!schoolName) {
+      res.status(400).json({ success: false, message: '학교명을 입력해 주세요.' });
+      return;
+    }
+    const prepared = rows.map((row: Record<string, unknown>) => {
+      const grade = staff.role === 'teacher' && staff.grade ? staff.grade : Number(row.grade || 0);
+      const classNum = staff.role === 'teacher' && staff.classNum ? staff.classNum : Number(row.classNum || 0);
+      return {
+        schoolYear,
+        schoolName,
+        grade,
+        classNum,
+        studentNum: Number(row.studentNum || 0),
+        name: String(row.name || ''),
+      };
+    });
+    const result = await createApprovedStudents(prepared);
+    res.status(result.success ? 200 : 400).json(result);
   })
 );
 

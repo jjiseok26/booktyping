@@ -191,6 +191,7 @@ export default function App() {
     setStudentToken(null);
     setHistory(getStoredHistory());
     setReports(getStoredBookReports());
+    setCurrentView((view) => (view === 'school-books' ? 'typing' : view));
   };
 
   const handleOpenAuthModal = (mode: 'login' | 'register' = 'login') => {
