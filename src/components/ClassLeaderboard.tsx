@@ -47,34 +47,41 @@ export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
   const [dbRecords, setDbRecords] = useState<StudentRankRecord[] | null>(null);
   const [classNums, setClassNums] = useState<number[]>([currentProfile.classNum]);
 
+  const historyStamp = userHistory[0]?.timestamp || userHistory.length;
+
   useEffect(() => {
     if (!currentProfile.schoolName) {
       setDbRecords([]);
       return;
     }
     let cancelled = false;
-    void apiGetLeaderboard({
-      schoolYear: currentProfile.schoolYear,
-      schoolName: currentProfile.schoolName,
-      grade: currentProfile.grade,
-      classNum: selectedClassNum,
-      currentStudentId: currentAccount?.id || currentProfile.accountId,
-    })
-      .then((data) => {
-        if (cancelled) return;
-        setDbRecords(data.records);
-        const nums = Array.from(
-          new Set([currentProfile.classNum, ...data.classNums, ...data.records.map((record) => record.profile.classNum)])
-        )
-          .filter((value) => value > 0)
-          .sort((a, b) => a - b);
-        setClassNums(nums.length > 0 ? nums : [currentProfile.classNum]);
+    const load = () => {
+      void apiGetLeaderboard({
+        schoolYear: currentProfile.schoolYear,
+        schoolName: currentProfile.schoolName,
+        grade: currentProfile.grade,
+        classNum: selectedClassNum,
+        currentStudentId: currentAccount?.id || currentProfile.accountId,
       })
-      .catch(() => {
-        if (!cancelled) setDbRecords(null);
-      });
+        .then((data) => {
+          if (cancelled) return;
+          setDbRecords(data.records);
+          const nums = Array.from(
+            new Set([currentProfile.classNum, ...data.classNums, ...data.records.map((record) => record.profile.classNum)])
+          )
+            .filter((value) => value > 0)
+            .sort((a, b) => a - b);
+          setClassNums(nums.length > 0 ? nums : [currentProfile.classNum]);
+        })
+        .catch(() => {
+          if (!cancelled) setDbRecords(null);
+        });
+    };
+    load();
+    const timer = window.setInterval(load, 4000);
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
     };
   }, [
     currentProfile.schoolYear,
@@ -83,6 +90,7 @@ export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
     currentProfile.accountId,
     selectedClassNum,
     currentAccount?.id,
+    historyStamp,
   ]);
 
   // Compute leaderboard records for the active class

@@ -173,18 +173,18 @@ export default function App() {
   };
 
   const handleSaveSession = (result: TypingSessionResult) => {
-    if (staffBrowse) return;
+    if (staffBrowse) return Promise.resolve();
     const sessionWithProfile: TypingSessionResult = {
       ...result,
       studentProfile,
     };
     if (currentAccount) {
-      void apiSaveSession(currentAccount.id, sessionWithProfile)
+      return apiSaveSession(currentAccount.id, sessionWithProfile)
         .then(setHistory)
         .catch(() => setHistory(saveTypingResult(sessionWithProfile)));
-      return;
     }
     setHistory(saveTypingResult(sessionWithProfile));
+    return Promise.resolve();
   };
 
   const handleSaveProfile = (newProfile: StudentProfile) => {

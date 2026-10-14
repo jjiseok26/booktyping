@@ -25,7 +25,7 @@ interface TypingAreaProps {
   settings: TypingSettings;
   onUpdateSettings: (newSettings: Partial<TypingSettings>) => void;
   onSelectAnotherBook: () => void;
-  onSaveSession: (result: TypingSessionResult) => void;
+  onSaveSession: (result: TypingSessionResult) => void | Promise<void>;
   onGoToDashboard: () => void;
   studentProfile?: StudentProfile;
   onGoToLeaderboard?: () => void;
@@ -298,12 +298,13 @@ export const TypingArea: React.FC<TypingAreaProps> = ({
       };
 
       playCompletionSound(settings.soundVolume);
-      onSaveSession(sessionResult);
-      setCompletedResult(sessionResult);
-      if (studentId) {
-        clearStoredProgress(studentId, book.id);
-        void apiClearProgress(studentId, book.id).catch(() => undefined);
-      }
+      void Promise.resolve(onSaveSession(sessionResult)).finally(() => {
+        setCompletedResult(sessionResult);
+        if (studentId) {
+          clearStoredProgress(studentId, book.id);
+          void apiClearProgress(studentId, book.id).catch(() => undefined);
+        }
+      });
     } else {
       // Proceed to next sentence
       setSentenceIndex((prev) => prev + 1);
