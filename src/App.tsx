@@ -22,6 +22,9 @@ import {
   getStoredBookReports,
   getCurrentStudentAccount,
   setCurrentStudentAccount,
+  getStoredStaffBrowse,
+  setStoredStaffBrowse,
+  type StaffBrowseState,
 } from './utils/storage';
 import {
   apiAdminReports,
@@ -31,6 +34,7 @@ import {
   apiListReports,
   apiListSessions,
   apiSaveSession,
+  getAdminToken,
   setStudentToken,
 } from './utils/dbClient';
 import { BookOpen, ShieldCheck } from 'lucide-react';
@@ -45,13 +49,7 @@ export default function App() {
   const [staffLoginMode, setStaffLoginMode] = useState<'admin' | 'teacher'>(
     window.location.hash === '#teacher' ? 'teacher' : 'admin'
   );
-  const [staffBrowse, setStaffBrowse] = useState<{
-    username: string;
-    role: 'admin' | 'teacher' | 'school_admin';
-    schoolName: string;
-    grade: number;
-    classNum: number;
-  } | null>(null);
+  const [staffBrowse, setStaffBrowse] = useState<StaffBrowseState | null>(null);
 
   useEffect(() => {
     const applyHash = () => {
@@ -105,6 +103,33 @@ export default function App() {
     const acc = getCurrentStudentAccount();
     setSettings(getStoredSettings());
     setCurrentAccount(acc);
+    const hash = window.location.hash;
+    const savedStaff = getAdminToken() ? getStoredStaffBrowse() : null;
+    if (savedStaff) {
+      const profile: StudentProfile = {
+        schoolYear: savedStaff.schoolYear || '2026학년도',
+        schoolName: savedStaff.schoolName,
+        grade: savedStaff.grade > 0 ? savedStaff.grade : 1,
+        classNum: savedStaff.classNum > 0 ? savedStaff.classNum : 0,
+        studentNum: 0,
+        name: `${savedStaff.username} 선생님`,
+      };
+      setStaffBrowse(savedStaff);
+      setStudentProfile(profile);
+      if (hash !== '#admin' && hash !== '#teacher') {
+        setCurrentView(savedStaff.view || 'leaderboard');
+      }
+      void Promise.all([apiAdminSessions(), apiAdminReports()])
+        .then(([sessions, classReports]) => {
+          setHistory(sessions);
+          setReports(classReports);
+        })
+        .catch(() => {
+          setHistory([]);
+          setReports([]);
+        });
+      return;
+    }
     if (acc) {
       const synchedProfile: StudentProfile = {
         schoolYear: acc.schoolYear,
@@ -133,6 +158,15 @@ export default function App() {
     }
   }, []);
 
+  useEffect(() => {
+    if (!staffBrowse || currentView === 'admin') return;
+    setStoredStaffBrowse({
+      ...staffBrowse,
+      schoolYear: studentProfile.schoolYear,
+      view: currentView,
+    });
+  }, [staffBrowse, currentView, studentProfile.schoolYear]);
+
   const handleSelectBook = (book: BookExcerpt) => {
     setSelectedBook(book);
     setCurrentView('typing');
@@ -160,6 +194,7 @@ export default function App() {
 
   // Student Auth Handlers
   const handleLoginSuccess = (account: StudentAccount) => {
+    setStoredStaffBrowse(null);
     setStaffBrowse(null);
     setCurrentStudentAccount(account);
     setCurrentAccount(account);
@@ -284,8 +319,14 @@ export default function App() {
               studentNum: 0,
               name: `${staff.username} 선생님`,
             };
+            const browse: StaffBrowseState = {
+              ...staff,
+              schoolYear: profile.schoolYear,
+              view: destination,
+            };
+            setStoredStaffBrowse(browse);
             setStudentProfile(profile);
-            setStaffBrowse(staff);
+            setStaffBrowse(browse);
             window.location.hash = '';
             setCurrentView(destination);
             void Promise.all([apiAdminSessions(), apiAdminReports()])
@@ -299,6 +340,7 @@ export default function App() {
               });
           }}
           onStaffLogout={() => {
+            setStoredStaffBrowse(null);
             setStaffBrowse(null);
             const acc = getCurrentStudentAccount();
             if (acc) {

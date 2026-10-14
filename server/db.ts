@@ -4,7 +4,7 @@ import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypt
 import { DatabaseSync } from 'node:sqlite';
 import type { BookReport, StudentAccount, StudentRankRecord, TypingProgress, TypingSessionResult } from '../src/types';
 import { expandSchoolName } from '../src/utils/schoolName';
-import { calculateCumulativeEffortScore, getTitleBadge, RANKING_MIN_ACCURACY, repeatScoreWeight } from '../src/utils/storage';
+import { accumulateSessionStats, calculateCumulativeEffortScore, getTitleBadge, RANKING_MIN_ACCURACY } from '../src/utils/storage';
 import { normalizeTypingText } from '../src/utils/hangul';
 import {
   DEFAULT_ADMIN_PASSWORD,
@@ -692,13 +692,25 @@ export async function saveSession(
   result: TypingSessionResult
 ): Promise<TypingSessionResult[]> {
   const existing = await query(
-    'SELECT id, repeat_count FROM typing_sessions WHERE student_id = ? AND excerpt_id = ? ORDER BY created_at DESC',
+    `SELECT id, repeat_count, score_weight, total_chars, total_strokes, duration_seconds,
+            effort_points, peak_cpm, accuracy
+     FROM typing_sessions WHERE student_id = ? AND excerpt_id = ? ORDER BY created_at DESC`,
     [studentId, result.excerptId]
   );
   const keepId = existing[0] ? String(existing[0].id) : result.id;
-  const repeatCount = existing[0] ? Number(existing[0].repeat_count || 1) + 1 : 1;
-  const scoreWeight = repeatScoreWeight(repeatCount);
-  const effortPoints = Math.round((result.earnedEffortPoints || 0) * scoreWeight);
+  const previous = existing[0]
+    ? {
+        repeatCount: Number(existing[0].repeat_count || 1),
+        scoreWeight: Number(existing[0].score_weight || 1),
+        totalChars: Number(existing[0].total_chars || 0),
+        totalStrokes: Number(existing[0].total_strokes || 0),
+        durationSeconds: Number(existing[0].duration_seconds || 0),
+        earnedEffortPoints: Number(existing[0].effort_points || 0),
+        peakCpm: Number(existing[0].peak_cpm || 0),
+        accuracy: Number(existing[0].accuracy || 0),
+      }
+    : null;
+  const totals = accumulateSessionStats(previous, result);
   const values = [
     result.excerptId,
     result.bookTitle,
@@ -706,17 +718,17 @@ export async function saveSession(
     result.excerptTitle,
     result.cpm,
     result.wpm,
-    result.peakCpm,
-    result.accuracy,
+    totals.peakCpm,
+    totals.accuracy,
     result.errorCount,
-    result.totalChars,
-    result.totalStrokes,
-    result.durationSeconds,
+    totals.totalChars,
+    totals.totalStrokes,
+    totals.durationSeconds,
     JSON.stringify(result.mistypedLetters || {}),
-    effortPoints,
+    totals.earnedEffortPoints,
     result.timestamp || Date.now(),
-    repeatCount,
-    scoreWeight,
+    totals.repeatCount,
+    totals.scoreWeight,
   ];
   if (existing[0]) {
     await run(
@@ -892,7 +904,8 @@ export async function getLeaderboard(filter: {
   classNum?: number;
   currentStudentId?: string;
 }): Promise<StudentRankRecord[]> {
-  const params: unknown[] = [filter.schoolYear, filter.schoolName, filter.grade];
+  const schoolName = expandSchoolName(filter.schoolName) || String(filter.schoolName || '').trim();
+  const params: unknown[] = [filter.schoolYear, schoolName, filter.grade];
   let classSql = '';
   if (filter.classNum && filter.classNum > 0) {
     classSql = ' AND s.class_num = ? ';
@@ -980,7 +993,7 @@ export async function listClassNumbers(filter: {
     `SELECT DISTINCT class_num FROM students
      WHERE school_year = ? AND school_name = ? AND grade = ?
      ORDER BY class_num`,
-    [filter.schoolYear, filter.schoolName, filter.grade]
+    [filter.schoolYear, expandSchoolName(filter.schoolName) || filter.schoolName, filter.grade]
   );
   return rows.map((row) => Number(row.class_num)).filter((value) => value > 0);
 }

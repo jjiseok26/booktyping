@@ -10,6 +10,7 @@ const STORAGE_KEYS = {
   CURRENT_STUDENT_ACCOUNT: 'literary_typing_current_student_account_v2',
   RECENT_ACCOUNTS: 'literary_typing_recent_accounts_v2',
   TYPING_PROGRESS: 'literary_typing_progress_v1',
+  STAFF_BROWSE: 'literary_typing_staff_browse_v1',
 };
 
 export const INITIAL_GUEST_PROFILE: StudentProfile = {
@@ -40,6 +41,88 @@ export function rankingSessions(history: TypingSessionResult[]): TypingSessionRe
 export function repeatScoreWeight(repeatCount: number): number {
   const count = Math.max(1, Math.floor(Number(repeatCount) || 1));
   return Math.max(0.1, Number(Math.pow(REPEAT_SCORE_DECAY, count - 1).toFixed(4)));
+}
+
+type SessionTotals = {
+  totalChars: number;
+  totalStrokes: number;
+  durationSeconds: number;
+  earnedEffortPoints: number;
+  peakCpm: number;
+  accuracy: number;
+  repeatCount: number;
+  scoreWeight: number;
+};
+
+export function accumulateSessionStats(
+  previous: Partial<SessionTotals> | null | undefined,
+  next: Pick<
+    TypingSessionResult,
+    'totalChars' | 'totalStrokes' | 'durationSeconds' | 'earnedEffortPoints' | 'peakCpm' | 'accuracy'
+  >
+): SessionTotals {
+  if (!previous) {
+    return {
+      repeatCount: 1,
+      scoreWeight: 1,
+      totalChars: Number(next.totalChars || 0),
+      totalStrokes: Number(next.totalStrokes || 0),
+      durationSeconds: Number(next.durationSeconds || 0),
+      earnedEffortPoints: Number(next.earnedEffortPoints || 0),
+      peakCpm: Number(next.peakCpm || 0),
+      accuracy: Number(next.accuracy || 0),
+    };
+  }
+  const prevRanked = Number(previous.accuracy || 0) >= RANKING_MIN_ACCURACY;
+  const nextRanked = Number(next.accuracy) >= RANKING_MIN_ACCURACY;
+  const repeatCount = Math.max(1, Number(previous.repeatCount || 1)) + 1;
+  const weight = nextRanked ? repeatScoreWeight(repeatCount) : 0;
+  const add = (value: number) => Math.round(Number(value || 0) * weight);
+  const prevWeight = Number(previous.scoreWeight || 1);
+  const base = (value: number) => (prevRanked ? Math.round(Number(value || 0) * prevWeight) : 0);
+  return {
+    repeatCount,
+    scoreWeight: 1,
+    totalChars: base(Number(previous?.totalChars || 0)) + add(next.totalChars),
+    totalStrokes: base(Number(previous?.totalStrokes || 0)) + add(next.totalStrokes),
+    durationSeconds: base(Number(previous?.durationSeconds || 0)) + add(next.durationSeconds),
+    earnedEffortPoints: base(Number(previous?.earnedEffortPoints || 0)) + add(next.earnedEffortPoints || 0),
+    peakCpm: Math.max(Number(previous?.peakCpm || 0), Number(next.peakCpm || 0)),
+    accuracy: nextRanked
+      ? Number(next.accuracy)
+      : prevRanked
+        ? Number(previous?.accuracy || 0)
+        : Number(next.accuracy),
+  };
+}
+
+export type StaffBrowseState = {
+  username: string;
+  role: 'admin' | 'teacher' | 'school_admin';
+  schoolName: string;
+  grade: number;
+  classNum: number;
+  schoolYear?: string;
+  view?: 'typing' | 'books' | 'school-books' | 'dashboard' | 'leaderboard' | 'reports';
+};
+
+export function getStoredStaffBrowse(): StaffBrowseState | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.STAFF_BROWSE);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as StaffBrowseState;
+    if (!parsed?.username || !parsed.schoolName) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function setStoredStaffBrowse(staff: StaffBrowseState | null): void {
+  if (typeof window === 'undefined') return;
+  if (!staff) localStorage.removeItem(STORAGE_KEYS.STAFF_BROWSE);
+  else localStorage.setItem(STORAGE_KEYS.STAFF_BROWSE, JSON.stringify(staff));
 }
 
 function isDemoRecordId(id: unknown): boolean {
@@ -81,12 +164,11 @@ export function saveTypingResult(result: TypingSessionResult): TypingSessionResu
   try {
     const history = getStoredHistory();
     const existing = history.find((item) => item.excerptId === result.excerptId);
-    const repeatCount = existing ? Number(existing.repeatCount || 1) + 1 : 1;
+    const totals = accumulateSessionStats(existing, result);
     const next = {
       ...result,
       id: existing?.id || result.id,
-      repeatCount,
-      earnedEffortPoints: Math.round((result.earnedEffortPoints || 0) * repeatScoreWeight(repeatCount)),
+      ...totals,
     };
     const updated = oneSessionPerWork([next, ...history.filter((item) => item.excerptId !== result.excerptId)]);
     localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(updated));

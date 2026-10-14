@@ -175,8 +175,8 @@ async function main() {
   if (updatedSameWork.length !== 1 || updatedSameWork[0].id !== 'session-1') {
     throw new Error('same work should update the existing session');
   }
-  if (updatedSameWork[0].totalChars !== 150 || updatedSameWork[0].accuracy !== 99) {
-    throw new Error('existing session was not updated');
+  if (updatedSameWork[0].totalChars !== 225 || updatedSameWork[0].accuracy !== 99) {
+    throw new Error('existing session did not accumulate score');
   }
   if (Number(updatedSameWork[0].repeatCount) !== 2) {
     throw new Error('repeat count should increase');
@@ -206,7 +206,7 @@ async function main() {
     classNum: 3,
     currentStudentId: login.account.id,
   });
-  if (boardAfterLow[0]?.totalChars !== 105) {
+  if (boardAfterLow[0]?.totalChars !== 225) {
     throw new Error(`accuracy below 80% should not count toward ranking: ${boardAfterLow[0]?.totalChars}`);
   }
   const afterOneDelete = await deleteSession('session-low-accuracy', login.account.id);
