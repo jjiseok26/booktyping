@@ -539,6 +539,7 @@ async function main() {
     expandSchoolName('금구중') !== '금구중학교' ||
     expandSchoolName('가온초') !== '가온초등학교' ||
     expandSchoolName('가온고') !== '가온고등학교' ||
+    expandSchoolName('금구 중') !== '금구중학교' ||
     !sameSchool('금구중', '금구중학교') ||
     sameSchool('금구중', '가온중학교')
   ) {

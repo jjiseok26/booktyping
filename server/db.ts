@@ -1490,12 +1490,12 @@ export async function listTeachers(
   const params: unknown[] = [];
   if (scoped) {
     const names = schoolNameVariants(schoolName || '');
-    clauses.push(`school_name IN (${names.map(() => '?').join(', ')})`);
+    clauses.push(`REPLACE(school_name, ' ', '') IN (${names.map(() => '?').join(', ')})`);
     params.push(...names);
   }
   if (schoolFilter) {
     const names = schoolNameVariants(filters?.schoolName || '');
-    clauses.push(`school_name IN (${names.map(() => '?').join(', ')})`);
+    clauses.push(`REPLACE(school_name, ' ', '') IN (${names.map(() => '?').join(', ')})`);
     params.push(...names);
   }
   if (username) {
@@ -1534,7 +1534,7 @@ function staffFilter(alias: string, scope?: StaffScope | string): { sql: string;
   const params: unknown[] = [];
   if (normalized.schoolName) {
     const names = schoolNameVariants(normalized.schoolName);
-    clauses.push(`${alias}.school_name IN (${names.map(() => '?').join(', ')})`);
+    clauses.push(`REPLACE(${alias}.school_name, ' ', '') IN (${names.map(() => '?').join(', ')})`);
     params.push(...names);
   }
   if (normalized.grade && normalized.grade > 0) {

@@ -60,7 +60,7 @@ import { downloadStudentWorkbook, parseStudentSpreadsheet } from '../utils/stude
 import { SchoolNameField } from './SchoolNameField';
 import { BookReportPrintSheet } from './BookReportPrintSheet';
 
-type AdminTab = 'overview' | 'students' | 'sessions' | 'reports' | 'teachers' | 'works';
+type AdminTab = 'overview' | 'approvals' | 'students' | 'sessions' | 'reports' | 'teachers' | 'works';
 type StaffRole = 'admin' | 'teacher' | 'school_admin';
 type LoginMode = 'admin' | 'teacher';
 type AdminStudent = StudentAccount & { sessionCount: number; reportCount: number; totalChars: number; approved?: boolean };
@@ -334,6 +334,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
         setStaffSchool(data.admin.schoolName || '');
         setStaffGrade(Number(data.admin.grade || 0));
         setStaffClassNum(Number(data.admin.classNum || 0));
+        if (nextRole === 'school_admin') setTab('approvals');
         if (Number(data.admin.grade || 0) > 0) setFilterGrade(String(data.admin.grade));
         await loadDashboard(nextRole);
       })
@@ -363,6 +364,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
       setStaffSchool(result.admin.schoolName || '');
       setStaffGrade(Number(result.admin.grade || 0));
       setStaffClassNum(Number(result.admin.classNum || 0));
+      if (nextRole === 'school_admin') setTab('approvals');
       if (Number(result.admin.grade || 0) > 0) setFilterGrade(String(result.admin.grade));
       setPassword('');
       try {
@@ -386,6 +388,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
     setSessions([]);
     setReports([]);
     setTeachers([]);
+    setPendingTeachers([]);
     setTeacherSearched(false);
     setStudentSearched(false);
     onStaffLogout?.();
@@ -630,6 +633,34 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
     () => scopedStudents.filter((student) => student.approved === false),
     [scopedStudents]
   );
+  const approvableStudents = useMemo(
+    () =>
+      pendingStudents.filter(
+        (student) =>
+          staffRole !== 'teacher' ||
+          ((!staffGrade || student.grade === staffGrade) && (!staffClassNum || student.classNum === staffClassNum))
+      ),
+    [pendingStudents, staffRole, staffGrade, staffClassNum]
+  );
+  const approvalCount = approvableStudents.length + (canManageTeachers ? pendingTeachers.length : 0);
+
+  const approveStudentAccount = (id: string) => {
+    void apiAdminApproveStudent(id)
+      .then(setStudents)
+      .catch((error) => {
+        window.alert(error instanceof Error ? error.message : '학생을 승인하지 못했습니다.');
+      });
+  };
+  const approveTeacherAccount = (id: string) => {
+    void apiAdminApproveTeacher(id)
+      .then(() => {
+        setPendingTeachers((prev) => prev.filter((row) => row.id !== id));
+        setTeachers((prev) => prev.map((row) => (row.id === id ? { ...row, approved: true } : row)));
+      })
+      .catch((error) => {
+        window.alert(error instanceof Error ? error.message : '교사를 승인하지 못했습니다.');
+      });
+  };
 
   const filteredStudents = useMemo(
     () => scopedStudents.filter((student) => matchesRoster(student, rosterFilters, student.schoolName)),
@@ -920,6 +951,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
         <div className="flex flex-wrap items-center gap-2">
           {(
             [
+              ['approvals', approvalCount ? `가입 승인 ${approvalCount}` : '가입 승인', Check],
               ['overview', '개요', LayoutDashboard],
               ['students', '학생', Users],
               ['sessions', '필사 기록', Keyboard],
@@ -943,46 +975,43 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
           ))}
         </div>
 
-        {pendingStudents.length > 0 && (
+        {tab === 'approvals' && (
           <section className="bg-amber-50 border border-amber-200 rounded-2xl p-4 space-y-3">
             <p className="text-sm font-semibold text-amber-950">
-              회원가입 승인 요청 {pendingStudents.length}건
+              학생 회원가입 승인 {approvableStudents.length}건
             </p>
+            {approvableStudents.length === 0 ? (
+              <p className="text-sm text-stone-600">대기 중인 학생 가입 요청이 없습니다.</p>
+            ) : (
             <div className="space-y-2">
-              {pendingStudents.map((student) => (
+              {approvableStudents.map((student) => (
                 <div key={student.id} className="flex flex-wrap items-center justify-between gap-2 bg-white border border-amber-100 rounded-xl px-3 py-2">
                   <p className="text-sm text-stone-800">
                     {student.schoolName} · {student.grade}학년 {student.classNum}반 {student.studentNum}번 · {student.name}
                   </p>
-                  {canApproveStudents &&
-                  (staffRole !== 'teacher' ||
-                    ((!staffGrade || student.grade === staffGrade) && (!staffClassNum || student.classNum === staffClassNum))) ? (
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold"
-                      onClick={() => {
-                        void apiAdminApproveStudent(student.id)
-                          .then(setStudents)
-                          .catch((error) => {
-                            window.alert(error instanceof Error ? error.message : '학생을 승인하지 못했습니다.');
-                          });
-                      }}
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                      승인
-                    </button>
-                  ) : null}
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold"
+                    onClick={() => approveStudentAccount(student.id)}
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    승인
+                  </button>
                 </div>
               ))}
             </div>
+            )}
           </section>
         )}
 
-        {pendingTeachers.length > 0 && (
+        {tab === 'approvals' && canManageTeachers && (
           <section className="bg-sky-50 border border-sky-200 rounded-2xl p-4 space-y-3">
             <p className="text-sm font-semibold text-sky-950">
-              교사 회원가입 승인 요청 {pendingTeachers.length}건
+              교사 회원가입 승인 {pendingTeachers.length}건
             </p>
+            {pendingTeachers.length === 0 ? (
+              <p className="text-sm text-stone-600">대기 중인 교사 가입 요청이 없습니다.</p>
+            ) : (
             <div className="space-y-2">
               {pendingTeachers.map((teacher) => (
                 <div key={teacher.id} className="flex flex-wrap items-center justify-between gap-2 bg-white border border-sky-100 rounded-xl px-3 py-2">
@@ -993,16 +1022,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
                   <button
                     type="button"
                     className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold"
-                    onClick={() => {
-                      void apiAdminApproveTeacher(teacher.id)
-                        .then(() => {
-                          setPendingTeachers((prev) => prev.filter((row) => row.id !== teacher.id));
-                          setTeachers((prev) => prev.map((row) => (row.id === teacher.id ? { ...row, approved: true } : row)));
-                        })
-                        .catch((error) => {
-                          window.alert(error instanceof Error ? error.message : '교사를 승인하지 못했습니다.');
-                        });
-                    }}
+                    onClick={() => approveTeacherAccount(teacher.id)}
                   >
                     <Check className="w-3.5 h-3.5" />
                     승인
@@ -1010,6 +1030,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
                 </div>
               ))}
             </div>
+            )}
           </section>
         )}
 
@@ -1097,15 +1118,22 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
         {tab === 'overview' && (
           <section className="bg-white border border-stone-200 rounded-2xl p-5 space-y-4">
             <p className="text-sm text-stone-600 leading-relaxed">
-              학년·반·번호 또는 이름으로 학생을 찾은 뒤, 필사 기록과 독후감을 확인할 수 있습니다.
+              {staffRole === 'school_admin'
+                ? `${staffSchool} 학생과 교사의 회원가입 요청을 가입 승인 메뉴에서 승인할 수 있습니다.`
+                : '학년·반·번호 또는 이름으로 학생을 찾은 뒤, 필사 기록과 독후감을 확인할 수 있습니다.'}
               {staffRole === 'admin'
                 ? ' 담임교사와 학교 최고관리자 아이디를 만들 수 있습니다.'
                 : staffRole === 'school_admin'
                   ? ` ${staffSchool} 학생의 반·번호·성명(로그인 암호)을 수정하거나 삭제할 수 있습니다.`
-                  : ` ${staffSchool} 담당 학급 학생들의 필사·독후 활동만 보입니다.`}
+                  : staffRole === 'teacher'
+                    ? ` ${staffSchool} 담당 학급 학생들의 필사·독후 활동만 보입니다.`
+                    : ''}
             </p>
             <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={() => setTab('students')} className="px-3 py-2 rounded-xl text-sm bg-amber-500 text-stone-950 font-semibold">
+              <button type="button" onClick={() => setTab('approvals')} className="px-3 py-2 rounded-xl text-sm bg-emerald-600 text-white font-semibold">
+                가입 승인{approvalCount ? ` ${approvalCount}` : ''}
+              </button>
+              <button type="button" onClick={() => setTab('students')} className="px-3 py-2 rounded-xl text-sm bg-white border border-stone-200 text-stone-700">
                 학생 찾기
               </button>
               <button type="button" onClick={() => setTab('sessions')} className="px-3 py-2 rounded-xl text-sm bg-white border border-stone-200 text-stone-700">
@@ -1766,16 +1794,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
                     <button
                       className="text-emerald-600 hover:text-emerald-700"
                       title="가입 승인"
-                      onClick={() => {
-                        void apiAdminApproveTeacher(teacher.id)
-                          .then(() => {
-                            setPendingTeachers((prev) => prev.filter((row) => row.id !== teacher.id));
-                            setTeachers((prev) => prev.map((row) => (row.id === teacher.id ? { ...row, approved: true } : row)));
-                          })
-                          .catch((error) => {
-                            window.alert(error instanceof Error ? error.message : '교사를 승인하지 못했습니다.');
-                          });
-                      }}
+                      onClick={() => approveTeacherAccount(teacher.id)}
                     >
                       <Check className="w-4 h-4" />
                     </button>

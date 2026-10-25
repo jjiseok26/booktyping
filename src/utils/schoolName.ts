@@ -1,5 +1,5 @@
 export function expandSchoolName(value: string): string {
-  const name = value.trim();
+  const name = value.trim().replace(/\s+/g, '');
   if (!name) return '';
   if (name.endsWith('초등학교') || name.endsWith('중학교') || name.endsWith('고등학교')) {
     return name;
