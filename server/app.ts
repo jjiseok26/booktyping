@@ -114,7 +114,7 @@ app.use((req, _res, next) => {
   if (mapped) {
     const id = parsed.searchParams.get('id');
     parsed.searchParams.delete('id');
-    parsed.pathname = id ? `${mapped}/${id}` : mapped;
+    parsed.pathname = id ? `${mapped}/${encodeURIComponent(id)}` : mapped;
     req.url = `${parsed.pathname}${parsed.search}`;
   } else {
     const pathOnly = url.split('?')[0];
@@ -836,9 +836,31 @@ app.patch(
 app.delete(
   '/api/admin/teachers/:id',
   asyncRoute(async (req, res) => {
-    const staff = await requireAdminOnly(req, res);
+    const staff = await requireStaff(req, res);
     if (!staff) return;
-    res.json({ success: true, teachers: await deleteTeacher(req.params.id) });
+    if (staff.role === 'admin') {
+      res.json({ success: true, teachers: await deleteTeacher(req.params.id) });
+      return;
+    }
+    if (staff.role !== 'school_admin') {
+      res.status(403).json({ success: false, message: '교사 가입 거부는 학교 최고관리자만 할 수 있습니다.' });
+      return;
+    }
+    const teacher = (await listTeachers(staff.schoolName)).find((row) => row.id === req.params.id);
+    if (!teacher || !sameSchool(teacher.schoolName, staff.schoolName)) {
+      res.status(403).json({ success: false, message: '해당 학교 교사만 거부할 수 있습니다.' });
+      return;
+    }
+    if (teacher.approved !== false) {
+      res.status(403).json({ success: false, message: '대기 중인 교사 가입 요청만 거부할 수 있습니다.' });
+      return;
+    }
+    await deleteTeacher(req.params.id);
+    res.json({
+      success: true,
+      message: '교사 가입 요청을 거부했습니다.',
+      teachers: await listTeachers(staff.schoolName),
+    });
   })
 );
 

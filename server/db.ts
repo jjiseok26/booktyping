@@ -171,6 +171,15 @@ export function buildStudentAccountId(
   return `${schoolYear.trim()}_${schoolName.trim().replace(/\s+/g, '')}_${grade}_${classNum}_${studentNum}`;
 }
 
+function isSchoolAdminValue(value: unknown): boolean {
+  return value === true || value === 1 || value === '1' || value === 't' || value === 'true';
+}
+
+function isApprovedValue(value: unknown): boolean {
+  if (value == null || value === '') return true;
+  return !(value === false || value === 0 || value === '0' || value === 'f' || value === 'false');
+}
+
 function mapStudent(row: SqlRow): StudentAccount {
   return {
     id: String(row.id),
@@ -182,7 +191,7 @@ function mapStudent(row: SqlRow): StudentAccount {
     name: String(row.name),
     createdAt: Number(row.created_at),
     lastLoginAt: Number(row.last_login_at),
-    approved: Number(row.approved ?? 1) !== 0,
+    approved: isApprovedValue(row.approved),
   };
 }
 
@@ -1157,14 +1166,14 @@ export async function loginAdmin(
       return { success: false, message: lockWaitMessage(lockedUntil) };
     }
     if (verifyPassword(pass, String(teacherRow.password_hash))) {
-      if (Number(teacherRow.approved ?? 1) === 0) {
-        return { success: false, message: '관리자 승인 후 로그인할 수 있습니다.' };
+      if (!isApprovedValue(teacherRow.approved)) {
+        return { success: false, message: '학교 최고관리자 승인 후 로그인할 수 있습니다.' };
       }
       const now = Date.now();
       const schoolName = String(teacherRow.school_name);
       const grade = Number(teacherRow.grade || 0);
       const classNum = Number(teacherRow.class_num || 0);
-      const role: StaffRole = Number(teacherRow.is_school_admin) === 1 ? 'school_admin' : 'teacher';
+      const role: StaffRole = isSchoolAdminValue(teacherRow.is_school_admin) ? 'school_admin' : 'teacher';
       await run(
         'UPDATE teachers SET last_login_at = ?, failed_logins = 0, lock_level = 0, locked_until = 0 WHERE id = ?',
         [now, String(teacherRow.id)]
@@ -1309,7 +1318,7 @@ export async function createTeacher(data: {
       ? `${schoolName} 최고관리자 계정을 만들었습니다.`
       : approved
         ? `${schoolName} ${grade}학년 ${classNum}반 담임교사 계정을 만들었습니다.`
-        : '회원가입 신청이 완료되었습니다. 관리자 승인 후 로그인할 수 있습니다.',
+        : '회원가입 신청이 완료되었습니다. 학교 최고관리자 승인 후 로그인할 수 있습니다.',
     teacher: { id, schoolName, username, grade, classNum, role, approved, createdAt: now, lastLoginAt: now },
   };
 }
@@ -1460,7 +1469,7 @@ export async function createTeachers(
 }
 
 function mapTeacher(row: SqlRow): TeacherAccount {
-  const schoolAdmin = Number(row.is_school_admin) === 1;
+  const schoolAdmin = isSchoolAdminValue(row.is_school_admin);
   return {
     id: String(row.id),
     schoolName: String(row.school_name),
@@ -1468,7 +1477,7 @@ function mapTeacher(row: SqlRow): TeacherAccount {
     grade: Number(row.grade || 0),
     classNum: Number(row.class_num || 0),
     role: schoolAdmin ? 'school_admin' : 'teacher',
-    approved: Number(row.approved ?? 1) !== 0,
+    approved: isApprovedValue(row.approved),
     createdAt: Number(row.created_at),
     lastLoginAt: Number(row.last_login_at),
   };
