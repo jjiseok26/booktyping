@@ -43,7 +43,7 @@ import {
   unlockSchoolWork,
   type AdminAccount,
 } from './db';
-import { expandSchoolName } from '../src/utils/schoolName';
+import { expandSchoolName, sameSchool } from '../src/utils/schoolName';
 import { readStudentToken, signStudentToken } from './adminAuth.js';
 
 function isParsedObject(body: unknown): body is Record<string, unknown> {
@@ -182,7 +182,7 @@ function studentInStaffScope(
   staff: AdminAccount
 ): boolean {
   const scope = staffScope(staff);
-  if (scope.schoolName && student.schoolName !== scope.schoolName) return false;
+  if (scope.schoolName && !sameSchool(student.schoolName, scope.schoolName)) return false;
   if (scope.grade && student.grade !== scope.grade) return false;
   if (scope.classNum && student.classNum !== scope.classNum) return false;
   return true;
@@ -603,7 +603,7 @@ app.delete(
       res.status(404).json({ success: false, message: '학생 계정을 찾을 수 없습니다.' });
       return;
     }
-    if (staff.role === 'school_admin' && student.schoolName !== staff.schoolName) {
+    if (staff.role === 'school_admin' && !sameSchool(student.schoolName, staff.schoolName)) {
       res.status(403).json({ success: false, message: '해당 학교 학생만 삭제할 수 있습니다.' });
       return;
     }

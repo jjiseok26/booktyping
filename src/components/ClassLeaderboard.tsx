@@ -505,10 +505,14 @@ export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-stone-500">최고 타수 / 정확도</span>
+                <span className="text-stone-500">최고 / 평균 타수</span>
                 <span className="font-mono text-stone-700">
-                  {topThree[1].peakCpm} CPM / {topThree[1].avgAccuracy}%
+                  {topThree[1].peakCpm} / {topThree[1].avgCpm} CPM
                 </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-stone-500">정확도</span>
+                <span className="font-mono text-stone-700">{topThree[1].avgAccuracy}%</span>
               </div>
             </div>
           </div>
@@ -564,10 +568,14 @@ export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-stone-600">최고 타수 / 정확도</span>
+                <span className="text-stone-600">최고 / 평균 타수</span>
                 <span className="font-mono text-stone-800 font-semibold">
-                  {topThree[0].peakCpm} CPM / {topThree[0].avgAccuracy}%
+                  {topThree[0].peakCpm} / {topThree[0].avgCpm} CPM
                 </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-stone-600">정확도</span>
+                <span className="font-mono text-stone-800 font-semibold">{topThree[0].avgAccuracy}%</span>
               </div>
             </div>
           </div>
@@ -615,10 +623,14 @@ export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-stone-500">최고 타수 / 정확도</span>
+                <span className="text-stone-500">최고 / 평균 타수</span>
                 <span className="font-mono text-stone-700">
-                  {topThree[2].peakCpm} CPM / {topThree[2].avgAccuracy}%
+                  {topThree[2].peakCpm} / {topThree[2].avgCpm} CPM
                 </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-stone-500">정확도</span>
+                <span className="font-mono text-stone-700">{topThree[2].avgAccuracy}%</span>
               </div>
             </div>
           </div>
@@ -743,8 +755,8 @@ export const ClassLeaderboard: React.FC<ClassLeaderboardProps> = ({
 
                     {/* CPM: Peak / Avg */}
                     <td className="py-3.5 px-4 text-right">
-                      <div className="font-mono font-bold text-amber-600">{record.peakCpm} CPM</div>
-                      <div className="text-[11px] text-stone-400 font-mono">평균 {record.avgCpm} CPM</div>
+                      <div className="font-mono font-bold text-sky-700">{record.peakCpm} 최고</div>
+                      <div className="font-mono font-bold text-amber-600">{record.avgCpm} 평균</div>
                     </td>
 
                     {/* Accuracy */}

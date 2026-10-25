@@ -174,13 +174,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // Export CSV function
   const handleExportCSV = () => {
     if (history.length === 0) return;
-    const headers = ['일시', '도서명', '작가', '작품명', '타수(CPM)', '정확도(%)', '오타수', '필사글자수', '소요시간(초)'];
+    const headers = ['일시', '도서명', '작가', '작품명', '평균타수(CPM)', '최고타수(CPM)', '정확도(%)', '오타수', '필사글자수', '소요시간(초)'];
     const rows = history.map((h) => [
       new Date(h.timestamp).toLocaleString('ko-KR'),
       `"${h.bookTitle.replace(/"/g, '""')}"`,
       `"${h.author.replace(/"/g, '""')}"`,
       `"${h.excerptTitle.replace(/"/g, '""')}"`,
       h.cpm,
+      h.peakCpm || h.cpm,
       h.accuracy,
       h.errorCount,
       h.totalChars,
@@ -574,7 +575,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     <th className="py-3 px-3">일시</th>
                     <th className="py-3 px-3">도서 및 작품</th>
                     <th className="py-3 px-3">작가</th>
-                    <th className="py-3 px-3 text-right">타수 (CPM)</th>
+                    <th className="py-3 px-3 text-right">평균 타수</th>
                     <th className="py-3 px-3 text-right">최고 타수</th>
                     <th className="py-3 px-3 text-right">정확도</th>
                     <th className="py-3 px-3 text-right">오타</th>

@@ -25,7 +25,6 @@ import {
   loginTeacher,
   listAllStudents,
   listSchoolNames,
-  approveTeacher,
   updateTeacher,
   updateStudentAccount,
   deleteStudentAccount,
@@ -39,7 +38,7 @@ import {
 import { rowsToTeachers } from '../src/utils/teacherWorkbook';
 import { readStaffToken, readStudentToken, signStudentToken } from './adminAuth.js';
 import { isSealed, open, seal } from './crypto.js';
-import { expandSchoolName } from '../src/utils/schoolName';
+import { expandSchoolName, sameSchool } from '../src/utils/schoolName';
 import { normalizeTypingText } from '../src/utils/hangul';
 
 const dbFile = path.join(process.cwd(), 'data', 'booktyping.check.sqlite');
@@ -418,6 +417,14 @@ async function main() {
   if (schoolAdminRows.some((row) => row.schoolName !== '금구중학교')) {
     throw new Error('school admin scope leaked other schools');
   }
+  const shortSchoolRows = await listAllStudents('금구중');
+  if (!shortSchoolRows.some((row) => row.schoolName === '금구중학교')) {
+    throw new Error('short school name should still see the same students');
+  }
+  const otherSchoolRows = await listAllStudents('가온중');
+  if (otherSchoolRows.some((row) => row.schoolName === '금구중학교')) {
+    throw new Error('different school names must stay separate');
+  }
 
   const otherClass = await registerStudent({
     schoolYear: '2026학년도',
@@ -471,8 +478,16 @@ async function main() {
   const pendingLogin = await loginTeacher('pending-teacher', 'wait1234');
   if (pendingLogin.success) throw new Error('unapproved teacher should not login');
   if (!pendingLogin.message.includes('승인')) throw new Error(pendingLogin.message);
-  const approvedTeacher = await approveTeacher(pending.teacher?.id || '');
-  if (!approvedTeacher.success) throw new Error(approvedTeacher.message);
+  const pendingRows = await listTeachers('금구중');
+  if (!pendingRows.some((row) => row.username === 'pending-teacher' && row.approved === false)) {
+    throw new Error('school admin should see a pending teacher without the full school name');
+  }
+  const foreignApprove = await updateTeacher(pending.teacher?.id || '', { approved: true }, '가온중');
+  if (foreignApprove.success) throw new Error('another school must not approve this teacher');
+  const approvedTeacher = await updateTeacher(pending.teacher?.id || '', { approved: true }, '금구중');
+  if (!approvedTeacher.success || !approvedTeacher.teachers.some((row) => row.username === 'pending-teacher' && row.approved)) {
+    throw new Error(approvedTeacher.message || 'school admin should approve a teacher at the same school');
+  }
   const pendingOk = await loginTeacher('pending-teacher', 'wait1234');
   if (!pendingOk.success) throw new Error(pendingOk.message);
 
@@ -523,7 +538,9 @@ async function main() {
   if (
     expandSchoolName('금구중') !== '금구중학교' ||
     expandSchoolName('가온초') !== '가온초등학교' ||
-    expandSchoolName('가온고') !== '가온고등학교'
+    expandSchoolName('가온고') !== '가온고등학교' ||
+    !sameSchool('금구중', '금구중학교') ||
+    sameSchool('금구중', '가온중학교')
   ) {
     throw new Error('school short names should expand only by appending 학교/등학교');
   }

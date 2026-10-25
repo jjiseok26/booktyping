@@ -54,7 +54,7 @@ import {
   getAdminToken,
   setAdminToken,
 } from '../utils/dbClient';
-import { expandSchoolName } from '../utils/schoolName';
+import { expandSchoolName, sameSchool } from '../utils/schoolName';
 import { parseTeacherSpreadsheet, TEACHER_CSV_TEMPLATE } from '../utils/teacherWorkbook';
 import { downloadStudentWorkbook, parseStudentSpreadsheet } from '../utils/studentWorkbook';
 import { SchoolNameField } from './SchoolNameField';
@@ -170,6 +170,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
   const [reports, setReports] = useState<BookReport[]>([]);
   const [viewingReport, setViewingReport] = useState<BookReport | null>(null);
   const [teachers, setTeachers] = useState<TeacherRow[]>([]);
+  const [pendingTeachers, setPendingTeachers] = useState<TeacherRow[]>([]);
   const [teacherLookupSchool, setTeacherLookupSchool] = useState('');
   const [teacherLookupUsername, setTeacherLookupUsername] = useState('');
   const [teacherLookupGrade, setTeacherLookupGrade] = useState('');
@@ -293,6 +294,32 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
       window.clearInterval(timer);
     };
   }, [adminName]);
+
+  useEffect(() => {
+    if (!adminName || !canManageTeachers) return undefined;
+    let cancelled = false;
+    const refreshPendingTeachers = () => {
+      void apiAdminTeachers()
+        .then((rows) => {
+          if (!cancelled) {
+            setPendingTeachers(
+              rows.filter(
+                (teacher) =>
+                  teacher.approved === false &&
+                  (staffRole === 'admin' || sameSchool(teacher.schoolName, staffSchool))
+              )
+            );
+          }
+        })
+        .catch(() => undefined);
+    };
+    refreshPendingTeachers();
+    const timer = window.setInterval(refreshPendingTeachers, 4000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [adminName, canManageTeachers, staffRole, staffSchool]);
 
   useEffect(() => {
     if (!getAdminToken()) {
@@ -576,19 +603,21 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
   };
 
   const scopedStudents = useMemo(
-    () => (isAdmin || !staffSchool ? students : students.filter((student) => student.schoolName === staffSchool)),
+    () => (isAdmin || !staffSchool ? students : students.filter((student) => sameSchool(student.schoolName, staffSchool))),
     [isAdmin, staffSchool, students]
   );
   const scopedSessions = useMemo(
     () =>
       isAdmin || !staffSchool
         ? sessions
-        : sessions.filter((session) => session.studentProfile?.schoolName === staffSchool),
+        : sessions.filter((session) => sameSchool(session.studentProfile?.schoolName || '', staffSchool)),
     [isAdmin, staffSchool, sessions]
   );
   const scopedReports = useMemo(
     () =>
-      isAdmin || !staffSchool ? reports : reports.filter((report) => report.studentProfile?.schoolName === staffSchool),
+      isAdmin || !staffSchool
+        ? reports
+        : reports.filter((report) => sameSchool(report.studentProfile?.schoolName || '', staffSchool)),
     [isAdmin, staffSchool, reports]
   );
 
@@ -932,13 +961,52 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
                       type="button"
                       className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold"
                       onClick={() => {
-                        void apiAdminApproveStudent(student.id).then(setStudents);
+                        void apiAdminApproveStudent(student.id)
+                          .then(setStudents)
+                          .catch((error) => {
+                            window.alert(error instanceof Error ? error.message : '학생을 승인하지 못했습니다.');
+                          });
                       }}
                     >
                       <Check className="w-3.5 h-3.5" />
                       승인
                     </button>
                   ) : null}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {pendingTeachers.length > 0 && (
+          <section className="bg-sky-50 border border-sky-200 rounded-2xl p-4 space-y-3">
+            <p className="text-sm font-semibold text-sky-950">
+              교사 회원가입 승인 요청 {pendingTeachers.length}건
+            </p>
+            <div className="space-y-2">
+              {pendingTeachers.map((teacher) => (
+                <div key={teacher.id} className="flex flex-wrap items-center justify-between gap-2 bg-white border border-sky-100 rounded-xl px-3 py-2">
+                  <p className="text-sm text-stone-800">
+                    {teacher.schoolName} · {teacher.username}
+                    {teacher.role === 'school_admin' ? ' · 학교 최고관리자' : ` · ${teacher.grade}학년 ${teacher.classNum}반`}
+                  </p>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold"
+                    onClick={() => {
+                      void apiAdminApproveTeacher(teacher.id)
+                        .then(() => {
+                          setPendingTeachers((prev) => prev.filter((row) => row.id !== teacher.id));
+                          setTeachers((prev) => prev.map((row) => (row.id === teacher.id ? { ...row, approved: true } : row)));
+                        })
+                        .catch((error) => {
+                          window.alert(error instanceof Error ? error.message : '교사를 승인하지 못했습니다.');
+                        });
+                    }}
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    승인
+                  </button>
                 </div>
               ))}
             </div>
@@ -1132,7 +1200,11 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
                       className="text-emerald-600 hover:text-emerald-700"
                       title="가입 승인"
                       onClick={() => {
-                        void apiAdminApproveStudent(student.id).then(setStudents);
+                        void apiAdminApproveStudent(student.id)
+                          .then(setStudents)
+                          .catch((error) => {
+                            window.alert(error instanceof Error ? error.message : '학생을 승인하지 못했습니다.');
+                          });
                       }}
                     >
                       <Check className="w-4 h-4" />
@@ -1197,7 +1269,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
             )}
             <AdminTable
               empty={hasRosterFilter ? '조건에 맞는 필사 기록이 없습니다. 학생 이름이나 학년·반·번호를 바꿔 보세요.' : '필사 기록이 없습니다.'}
-              headers={['선택', '일시', '학급', '학생', '작품', '타수', '정확도', '글자 수']}
+              headers={['선택', '일시', '학급', '학생', '작품', '평균 타수', '최고 타수', '정확도', '글자 수']}
               rows={filteredSessions.map((session) => {
                 const studentId = session.studentProfile?.accountId || '';
                 const key = sessionRecordKey(session);
@@ -1215,6 +1287,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
                   session.studentProfile?.name || '-',
                   `${session.bookTitle} · ${session.excerptTitle}`,
                   `${session.cpm}`,
+                  `${session.peakCpm || session.cpm}`,
                   `${session.accuracy}%`,
                   String(session.totalChars),
                 ];
@@ -1687,12 +1760,21 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBack, loginMode = 'admin
                   >
                     <Pencil className="w-4 h-4" />
                   </button>
-                  {isAdmin && teacher.approved === false && (
+                  {canManageTeachers &&
+                  teacher.approved === false &&
+                  (isAdmin || sameSchool(teacher.schoolName, staffSchool)) && (
                     <button
                       className="text-emerald-600 hover:text-emerald-700"
                       title="가입 승인"
                       onClick={() => {
-                        void apiAdminApproveTeacher(teacher.id).then(() => searchTeachers());
+                        void apiAdminApproveTeacher(teacher.id)
+                          .then(() => {
+                            setPendingTeachers((prev) => prev.filter((row) => row.id !== teacher.id));
+                            setTeachers((prev) => prev.map((row) => (row.id === teacher.id ? { ...row, approved: true } : row)));
+                          })
+                          .catch((error) => {
+                            window.alert(error instanceof Error ? error.message : '교사를 승인하지 못했습니다.');
+                          });
                       }}
                     >
                       <Check className="w-4 h-4" />

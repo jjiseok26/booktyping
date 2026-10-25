@@ -3,7 +3,7 @@ import path from 'node:path';
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import type { BookReport, StudentAccount, StudentRankRecord, TypingProgress, TypingSessionResult } from '../src/types';
-import { expandSchoolName } from '../src/utils/schoolName';
+import { expandSchoolName, sameSchool, schoolNameVariants } from '../src/utils/schoolName';
 import { accumulateSessionStats, calculateCumulativeEffortScore, getTitleBadge, RANKING_MIN_ACCURACY } from '../src/utils/storage';
 import { normalizeTypingText } from '../src/utils/hangul';
 import {
@@ -1357,7 +1357,7 @@ export async function updateTeacher(
     return { success: false, message: '교사 계정을 찾을 수 없습니다.', teachers: await listTeachers(allowedSchool) };
   }
   const current = mapTeacher(rows[0]);
-  if (allowedSchool && current.schoolName !== allowedSchool) {
+  if (allowedSchool && !sameSchool(current.schoolName, allowedSchool)) {
     return { success: false, message: '해당 학교 교사만 수정할 수 있습니다.', teachers: await listTeachers(allowedSchool) };
   }
 
@@ -1366,7 +1366,7 @@ export async function updateTeacher(
   if (!schoolName) {
     return { success: false, message: '학교명을 입력해주세요.', teachers: await listTeachers(allowedSchool) };
   }
-  if (allowedSchool && schoolName !== allowedSchool) {
+  if (allowedSchool && !sameSchool(schoolName, allowedSchool)) {
     return { success: false, message: '다른 학교로 옮길 수 없습니다.', teachers: await listTeachers(allowedSchool) };
   }
 
@@ -1489,12 +1489,14 @@ export async function listTeachers(
   const clauses: string[] = [];
   const params: unknown[] = [];
   if (scoped) {
-    clauses.push('school_name = ?');
-    params.push(scoped);
+    const names = schoolNameVariants(schoolName || '');
+    clauses.push(`school_name IN (${names.map(() => '?').join(', ')})`);
+    params.push(...names);
   }
   if (schoolFilter) {
-    clauses.push('school_name = ?');
-    params.push(schoolFilter);
+    const names = schoolNameVariants(filters?.schoolName || '');
+    clauses.push(`school_name IN (${names.map(() => '?').join(', ')})`);
+    params.push(...names);
   }
   if (username) {
     clauses.push('username LIKE ?');
@@ -1531,8 +1533,9 @@ function staffFilter(alias: string, scope?: StaffScope | string): { sql: string;
   const clauses: string[] = [];
   const params: unknown[] = [];
   if (normalized.schoolName) {
-    clauses.push(`${alias}.school_name = ?`);
-    params.push(normalized.schoolName);
+    const names = schoolNameVariants(normalized.schoolName);
+    clauses.push(`${alias}.school_name IN (${names.map(() => '?').join(', ')})`);
+    params.push(...names);
   }
   if (normalized.grade && normalized.grade > 0) {
     clauses.push(`${alias}.grade = ?`);
@@ -1613,7 +1616,7 @@ export async function updateStudentAccount(
 ): Promise<{ success: boolean; message: string; account?: StudentAccount }> {
   const current = await getStudentById(id);
   if (!current) return { success: false, message: '학생 계정을 찾을 수 없습니다.' };
-  if (allowedSchool && current.schoolName !== allowedSchool) {
+  if (allowedSchool && !sameSchool(current.schoolName, allowedSchool)) {
     return { success: false, message: '해당 학교 학생만 수정할 수 있습니다.' };
   }
 

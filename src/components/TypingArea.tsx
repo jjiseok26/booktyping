@@ -532,7 +532,7 @@ export const TypingArea: React.FC<TypingAreaProps> = ({
           <div className="flex items-center justify-between text-xs text-stone-500 mb-1">
             <span className="flex items-center gap-1 font-medium">
               <Zap className="w-3.5 h-3.5 text-amber-500" />
-              현재 타수
+              평균 타수
             </span>
             <span className="text-[10px] text-stone-400">타/분</span>
           </div>
@@ -543,7 +543,7 @@ export const TypingArea: React.FC<TypingAreaProps> = ({
             <span className="text-xs text-stone-500 font-mono">CPM</span>
           </div>
           <div className="mt-1.5 flex items-center justify-between text-[11px] text-stone-400">
-            <span>최고: <strong className="text-stone-600 font-mono">{peakCpm}</strong></span>
+            <span>최고 타수 <strong className="text-sky-700 font-mono">{peakCpm}</strong></span>
             <span>약 {Math.round(realtimeCpm / 5)} WPM</span>
           </div>
           {/* Subtle bottom indicator bar */}
